@@ -1193,7 +1193,14 @@ mod tests {
             extra_index_url: "https://pypi.org/simple".to_string(),
             uv_cache: crate::config::shared_dir().join("uv-cache"),
             uv: PathBuf::from("uv"),
-            git: crate::git::ensure_bundled(None).expect("bundled git"),
+            // 运行时 MinGit 按需下载，这个集成测试在没有装它时直接跳过
+            git: match crate::git::ensure() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("skip: {}", e.message);
+                    return;
+                }
+            },
             comfy_repo: "https://github.com/comfyanonymous/ComfyUI".to_string(),
             channel: "stable".to_string(),
             skip_requirements: !with_requirements,

@@ -320,14 +320,16 @@ impl EngineOption {
     }
 }
 
-/// 解析 uv：优先安装目录下的 `resources/uv.exe`（安装包内置），
-/// 再退回开发目录资源，最后才查系统 PATH。
+/// 解析 uv：优先「设置 → 运行时」里按需下载的那份，
+/// 再退回老版本安装包遗留的 `resources/uv.exe`，最后才查系统 PATH。
 pub fn resolve_uv() -> Result<PathBuf, AppError> {
     let mut candidates: Vec<PathBuf> = Vec::new();
+    candidates.push(crate::toolchain::uv_exe());
     if let Some(dir) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
     {
+        // 0.1.x 的安装包把 uv.exe 放在这；老用户升级后仍然可用，不必重下
         candidates.push(dir.join("resources").join("uv.exe"));
     }
     // 仅开发构建允许回退到源码目录；release 里不能把编译机绝对路径带进运行时。
@@ -357,7 +359,8 @@ pub fn resolve_uv() -> Result<PathBuf, AppError> {
 
     Err(AppError::new(
         "UV_NOT_FOUND",
-        "找不到 uv。安装包应自带 resources\\uv.exe；若文件被杀软隔离，请恢复它，或把 uv 加入 PATH 后重试。",
+        "找不到 uv。请到 设置 → 运行时 下载（约 18.7 MB）；\
+         或在 设置 → 路径 里指定 uv.exe，或把 uv 加入系统 PATH 后重试。",
     ))
 }
 

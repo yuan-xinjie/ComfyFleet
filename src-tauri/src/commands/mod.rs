@@ -13,5 +13,6 @@ pub mod pty;
 pub mod run;
 pub mod settings;
 pub mod snapshot;
+pub mod toolchain;
 pub mod update;
 pub mod version;

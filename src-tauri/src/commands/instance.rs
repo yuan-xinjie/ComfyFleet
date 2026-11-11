@@ -2922,7 +2922,7 @@ mod tests {
             eprintln!("未设置COMFYFLEET_IMPORT_ROOT，跳过");
             return;
         };
-        let git = crate::git::ensure_bundled(None).ok();
+        let git = crate::git::ensure().ok();
         let d = detect_existing(std::path::Path::new(&root), git.as_deref());
         println!(
             "root={}\npython_env={:?}\npython={}\ntorch={}\nengine={}\nchannel={} reference={} version={:?}",

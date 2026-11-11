@@ -8,7 +8,7 @@ import InstanceDetail from './views/InstanceDetail'
 import TopbarAction from './components/TopbarAction'
 import ThemeToggle from './components/ThemeToggle'
 import WindowControls from './components/WindowControls'
-import SettingsView, { type SettingsActions } from './views/Settings'
+import SettingsView, { type SettingsActions, type SettingsSection } from './views/Settings'
 import Icon from './components/Icon'
 import { applyTheme, type ThemeMode } from './lib/theme'
 import { syncTrayIcon } from './lib/tray'
@@ -49,6 +49,10 @@ export default function App() {
   const settingsActions = useRef<SettingsActions | null>(null)
   const [confirmLeave, setConfirmLeave] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  /** 启动自检发现的缺失运行时（uv / Git / git-lfs），非空时显示顶部提示条 */
+  const [runtimeIssues, setRuntimeIssues] = useState<string[]>([])
+  const [runtimeBannerClosed, setRuntimeBannerClosed] = useState(false)
+  const [focusSection, setFocusSection] = useState<SettingsSection | null>(null)
 
   const notify = useCallback((kind: 'ok' | 'err', msg: string) => setToast({ kind, msg }), [])
 
@@ -58,6 +62,26 @@ export default function App() {
   }, [])
 
   // 页面/页签常驻后不再统一清零滚动位置；切回来时保留上次看到的位置。
+
+  // 每次启动都自检运行时：缺 uv / Git 时「安装环境」「拉节点」都会失败。
+  // 与其让用户操作到一半才报错，不如启动就说清楚并给个一键入口。
+  const checkRuntime = useCallback(async () => {
+    try {
+      const s = await api.toolchainStatus()
+      const issues: string[] = []
+      if (!s.uv.installed || !s.uv.version) issues.push('uv')
+      if (!s.git.installed || !s.git.version) issues.push('Git')
+      else if (!s.gitLfs) issues.push('git-lfs')
+      setRuntimeIssues(issues)
+    } catch {
+      // 自检失败不该挡住界面
+    }
+  }, [])
+
+  // 回到首页/实例页时重新自检，装完运行时回来提示条会自动消失
+  useEffect(() => {
+    void checkRuntime()
+  }, [checkRuntime, screen])
 
   useEffect(() => {
     api.appInfo().then(setInfo).catch((e) => notify('err', errText(e)))
@@ -200,6 +224,7 @@ export default function App() {
   const closeSettings = useCallback(() => {
     setSettingsDirty(false)
     setSettingsBusy(false)
+    setFocusSection(null)
     setNavDir('back')
     setScreen(
       settingsFrom === 'instance' && selected
@@ -243,6 +268,47 @@ export default function App() {
   return (
     <div className="shell">
       <div className="main" data-nav-dir={navDir}>
+        {runtimeIssues.length > 0 && !runtimeBannerClosed && screen !== 'global' && (
+          <div
+            className="banner"
+            role="status"
+            style={{
+              position: 'fixed',
+              top: 46,
+              left: 16,
+              right: 16,
+              zIndex: 70,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <Icon name="download" size={15} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <strong>缺少运行时：{runtimeIssues.join('、')}</strong>
+              <div className="hint">
+                安装环境、拉取 ComfyUI 与节点都要用到这些组件。可在设置里按需下载，不点就不会联网。
+              </div>
+            </div>
+            <button
+              className="ghost sm"
+              onClick={() => {
+                setFocusSection('runtime')
+                openSettings()
+              }}
+            >
+              去下载
+            </button>
+            <button
+              className="icon-btn"
+              onClick={() => setRuntimeBannerClosed(true)}
+              aria-label="关闭提示"
+              title="本次不再提示"
+            >
+              ×
+            </button>
+          </div>
+        )}
         <Page active={screen === 'global'}>
           <>
             <header className="topbar" data-tauri-drag-region="deep">
@@ -271,6 +337,7 @@ export default function App() {
                 onBusy={setSettingsBusy}
                 onActions={registerSettingsActions}
                 active={screen === 'global'}
+                focusSection={focusSection}
                 onThemeChange={setThemeMode}
                 onPreviewTheme={previewTheme}
               />

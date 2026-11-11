@@ -60,6 +60,8 @@ import type {
   StoragePlan,
   StorageUpdateReq,
   TagInfo,
+  RuntimeEvent,
+  RuntimeStatus,
   UpdateEvent,
   VersionDirtyFile,
   VersionEvent,
@@ -99,9 +101,24 @@ export const api = {
     channel.onmessage = onEvent
     return invoke<void>('app_update_install', { onEvent: channel })
   },
+  /** 「设置 → 运行」里三个可选组件（uv / MinGit / git-lfs）的安装状态 */
+  toolchainStatus: () => invoke<RuntimeStatus>('toolchain_status'),
+  /**
+   * 按需下载一个运行时。`kind` 取 `uv`（约 18.7 MB）或 `git`（约 43.7 MB，含 git-lfs）。
+   * 默认一个都不装，只有用户点了才会下载。
+   */
+  toolchainInstall: (
+    kind: 'uv' | 'git',
+    onEvent: (ev: RuntimeEvent) => void,
+  ): Promise<void> => {
+    const channel = new Channel<RuntimeEvent>()
+    channel.onmessage = onEvent
+    return invoke<void>('toolchain_install', { kind, onEvent: channel })
+  },
+  /** 卸载运行时；只删数据目录里我们自己的那份 */
+  toolchainRemove: (kind: 'uv' | 'git') => invoke<void>('toolchain_remove', { kind }),
   /** 本机实时网络吞吐；操作控制台运行中轮询 */
-  netSpeed: () => invoke<NetSpeed>('net_speed'),
-  openPath: (path: string) => invoke<void>('open_path', { path }),
+  netSpeed: () => invoke<NetSpeed>('net_speed'),  openPath: (path: string) => invoke<void>('open_path', { path }),
   /** 打开原生文件夹选择框；取消返回 null */
   pickFolder: () => invoke<string | null>('pick_folder'),
 

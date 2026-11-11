@@ -24,6 +24,7 @@ mod snapshot;
 mod state;
 mod storage;
 mod sync;
+mod toolchain;
 mod uv_cache;
 mod wheel_repo;
 mod wheelhouse;
@@ -244,16 +245,23 @@ pub fn run() {
             // 上次创建/加入过集群：恢复 Leader 服务 Follower Agent
             cluster::autostart(&app.handle().clone());
 
-            // 启动时解析一 git（内 MinGit 首次会解包），结果写进日志便于排。
+            // 启动时解析一下 git（运行时 MinGit 未安装时会 WARN），结果写进日志便于排查。
             let handle = app.handle().clone();
-            std::thread::spawn(move || match git::resolve(&handle, &settings) {
-                Ok(g) => log::info!(
-                    "git ready: {} (source {}, path {})",
-                    g.version,
-                    g.source,
-                    g.path
-                ),
-                Err(e) => log::warn!("git 不可用：{}", e.message),
+            std::thread::spawn(move || {
+                // 老版本把 uv 放在安装目录、把 MinGit 放在 data\git；统一收到 runtime 目录
+                toolchain::migrate_legacy();
+                if !toolchain::uv_installed() {
+                    log::warn!("uv 运行时未安装（设置 → 运行 → 运行时 可下载）");
+                }
+                match git::resolve(&handle, &settings) {
+                    Ok(g) => log::info!(
+                        "git ready: {} (source {}, path {})",
+                        g.version,
+                        g.source,
+                        g.path
+                    ),
+                    Err(e) => log::warn!("git 不可用：{}", e.message),
+                }
             });
 
             // 清理上次被强杀留下的孤 ComfyUI（它们会占着端口。
@@ -346,6 +354,9 @@ pub fn run() {
             commands::version::version_update,
             commands::update::app_update_check,
             commands::update::app_update_install,
+            commands::toolchain::toolchain_status,
+            commands::toolchain::toolchain_install,
+            commands::toolchain::toolchain_remove,
             commands::nodes::nodes_list,
             commands::nodes::nodes_install,
             commands::nodes::nodes_toggle,

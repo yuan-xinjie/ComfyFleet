@@ -1623,7 +1623,7 @@ mod tests {
     /// 造一个本地仓库（不联网），验证版本读取/ 分tag / 切换 / dirty 检测
     #[test]
     fn version_flow_on_scratch_repo() {
-        let git = match crate::git::ensure_bundled(None) {
+        let git = match crate::git::ensure() {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("skip: {}", e.message);
@@ -1747,7 +1747,7 @@ mod tests {
     /// 切到 master、再更新到最新，都必须能用（旧实现会在merge --ff-only 上失败）
     #[test]
     fn shallow_clone_can_switch_channel_and_update() {
-        let git = match crate::git::ensure_bundled(None) {
+        let git = match crate::git::ensure() {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("skip: {}", e.message);

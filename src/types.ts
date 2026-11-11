@@ -564,6 +564,36 @@ export interface UpdateEvent {
   done: boolean
 }
 
+/** 单个可选运行时的状态（uv / MinGit） */
+export interface RuntimePart {
+  installed: boolean
+  /** 已安装时从二进制读到的版本，未安装为 null */
+  version: string | null
+  path: string
+  sizeMb: number
+}
+
+/** 「设置 → 运行 → 运行时」的三个可选组件状态 */
+export interface RuntimeStatus {
+  uv: RuntimePart
+  git: RuntimePart
+  /** git 装好了但缺 git-lfs（例如从 0.1 老安装继承的目录） */
+  gitLfs: boolean
+  /** 全部装齐要下载多少 MB */
+  downloadMb: number
+  /** 数据目录，用户可自己去看 */
+  root: string
+}
+
+/** 运行时下载进度（与 Rust RuntimeEvent 对应） */
+export interface RuntimeEvent {
+  stage: string
+  message: string
+  downloaded: number
+  total: number | null
+  done: boolean
+}
+
 /** custom_nodes 下的一个节点 */
 export interface NodeInfo {
   name: string

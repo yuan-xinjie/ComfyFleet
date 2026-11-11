@@ -5,6 +5,8 @@ import type {
   AppUpdate,
   GitInfo,
   GlobalSettings,
+  RuntimeEvent,
+  RuntimeStatus,
   StorageSettings,
   SyncCacheInfo,
   ThemePalette,
@@ -31,7 +33,7 @@ import {
   type ThemeMode,
 } from '../lib/theme'
 
-type SettingsSection = 'appearance' | 'network' | 'storage' | 'runtime' | 'sync' | 'logs' | 'update'
+export type SettingsSection = 'appearance' | 'network' | 'storage' | 'runtime' | 'sync' | 'logs' | 'update'
 
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: 'appearance', label: '外观', icon: 'overview' },
@@ -62,6 +64,8 @@ interface Props {
   onThemeChange?: (theme: ThemeMode) => void
   /** 切换配色页签或改颜色时临时应用到整个界面，保存后才写盘 */
   onPreviewTheme?: (ui: UiOpts) => void
+  /** 外部（例如启动时的运行时提示）要求直接打开某个分区 */
+  focusSection?: SettingsSection | null
 }
 
 function ColorField(props: {
@@ -165,8 +169,14 @@ export default function SettingsView({
   active = true,
   onThemeChange,
   onPreviewTheme,
+  focusSection,
 }: Props) {
-  const [section, setSection] = useState<SettingsSection>('appearance')
+  const [section, setSection] = useState<SettingsSection>(focusSection ?? 'appearance')
+
+  // 启动检测发现缺运行时后，首页横幅会带着 focusSection 把用户送进来
+  useEffect(() => {
+    if (focusSection) setSection(focusSection)
+  }, [focusSection])
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
   const [baseline, setBaseline] = useState<string | null>(null)
   const [editMode, setEditMode] = useState<ThemeMode>('dark')
@@ -966,6 +976,7 @@ export default function SettingsView({
                 </label>
               </div>
             </div>
+            <RuntimePanel notify={notify} />
             <ToolchainPanel />
           </>
         )}
@@ -1102,9 +1113,197 @@ export default function SettingsView({
 }
 
 const GIT_SOURCE: Record<string, string> = {
-  bundled: '内置 MinGit（随安装包分发）',
+  bundled: '内置 MinGit（按需下载）',
   custom: '自定义路径',
   system: '系统 PATH',
+}
+
+/** uv / Git 两个可选运行时：不再随安装包分发，默认一个都不装，点了才下载。 */
+function RuntimePanel({ notify }: { notify: (kind: 'ok' | 'err', msg: string) => void }) {
+  const [status, setStatus] = useState<RuntimeStatus | null>(null)
+  const [busyKind, setBusyKind] = useState<'uv' | 'git' | null>(null)
+  const [progress, setProgress] = useState<RuntimeEvent | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      setStatus(await api.toolchainStatus())
+    } catch (e) {
+      setError(errText(e))
+    }
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const install = useCallback(
+    async (kind: 'uv' | 'git') => {
+      setBusyKind(kind)
+      setError(null)
+      setProgress(null)
+      try {
+        await api.toolchainInstall(kind, (ev) => setProgress(ev))
+        notify('ok', `${kind === 'uv' ? 'uv' : 'Git'} 运行时安装完成`)
+      } catch (e) {
+        setError(errText(e))
+      } finally {
+        setBusyKind(null)
+        setProgress(null)
+        void refresh()
+      }
+    },
+    [notify, refresh],
+  )
+
+  const remove = useCallback(
+    async (kind: 'uv' | 'git') => {
+      setBusyKind(kind)
+      setError(null)
+      try {
+        await api.toolchainRemove(kind)
+        notify('ok', `${kind === 'uv' ? 'uv' : 'Git'} 运行时已删除`)
+      } catch (e) {
+        setError(errText(e))
+      } finally {
+        setBusyKind(null)
+        void refresh()
+      }
+    },
+    [notify, refresh],
+  )
+
+  // 「一键装齐」：缺哪个装哪个，已经装好的跳过
+  const installAll = useCallback(async () => {
+    const need: ('uv' | 'git')[] = []
+    if (!status?.uv.installed || !status.uv.version) need.push('uv')
+    if (!status?.git.installed || !status.git.version) need.push('git')
+    if (need.length === 0) return
+    for (const kind of need) {
+      await install(kind)
+    }
+  }, [install, status])
+
+  const rows = [
+    {
+      kind: 'uv' as const,
+      title: 'uv',
+      desc: 'Python 环境与依赖安装器',
+      size: '18.7 MB',
+      part: status?.uv,
+      note: null as string | null,
+    },
+    {
+      kind: 'git' as const,
+      title: 'Git + git-lfs',
+      desc: '拉取 ComfyUI / 节点、切换版本；含大文件（LFS）支持',
+      size: '43.7 MB',
+      part: status?.git,
+      note: status && status.git.installed && !status.gitLfs ? '缺少 git-lfs（可点「修复」补装）' : null,
+    },
+  ]
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>运行时（可选）</h2>
+        <div className="spacer" />
+        <button
+          className="primary sm"
+          onClick={() => void installAll()}
+          disabled={busyKind !== null || (!status ? true : status.uv.installed && status.git.installed && status.gitLfs)}
+          title="缺什么装什么，已经装好的会跳过"
+        >
+          一键安装全部（{status?.downloadMb ?? 62.4} MB）
+        </button>
+        <button className="ghost" onClick={() => void refresh()} disabled={busyKind !== null}>
+          刷新
+        </button>
+      </div>
+      <div className="panel-body" style={{ display: 'grid', gap: 10 }}>
+        <div className="hint">
+          这两个组件不再随安装包分发（安装包因此从 55 MB 降到约 10 MB），默认都不安装，
+          只有你点了「下载」才会联网获取并校验 SHA256。全部装齐约 {status?.downloadMb ?? 62.4} MB。
+        </div>
+
+        {rows.map((row) => {
+          const installed = row.part?.installed ?? false
+          const busy = busyKind === row.kind
+          return (
+            <div
+              key={row.kind}
+              style={{
+                display: 'grid',
+                gap: 6,
+                padding: '8px 0',
+                borderTop: '1px solid var(--line, rgba(128,128,128,0.18))',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <strong>{row.title}</strong>
+                <span className={`badge ${installed ? 'ok' : 'ghost'}`}>
+                  {installed ? (row.part?.version ?? '已安装') : '未安装'}
+                </span>
+                <span className="hint">{row.desc}</span>
+                <div className="spacer" />
+                {installed ? (
+                  <>
+                    <span className="faint mono" style={{ fontSize: 11.5 }}>
+                      {row.part?.sizeMb?.toFixed(1) ?? '—'} MB
+                    </span>
+                    <button
+                      className="ghost sm"
+                      onClick={() => void remove(row.kind)}
+                      disabled={busyKind !== null}
+                    >
+                      {busy ? '处理中…' : '删除'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="ghost sm"
+                    onClick={() => void install(row.kind)}
+                    disabled={busyKind !== null}
+                  >
+                    {busy ? '下载中…' : `下载（${row.size}）`}
+                  </button>
+                )}
+                {installed && row.note && (
+                  <button
+                    className="ghost sm"
+                    onClick={() => void install(row.kind)}
+                    disabled={busyKind !== null}
+                  >
+                    修复
+                  </button>
+                )}
+              </div>
+              {row.note && <div className="hint is-status">{row.note}</div>}
+              <div className="faint mono" style={{ fontSize: 11, wordBreak: 'break-all' }}>
+                {row.part?.path ?? ''}
+              </div>
+              {busy && progress && <div className="hint is-status">{progress.message}</div>}
+            </div>
+          )
+        })}
+
+        {error && (
+          <div className="banner">
+            <div>
+              <strong>运行时操作失败：</strong>
+              {error}
+            </div>
+          </div>
+        )}
+
+        {status && (
+          <div className="hint">
+            存放位置：<span className="mono">{status.root}</span>（删掉这里不会影响系统里的 git）
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /** 工具链面板：当前实际会用哪个 git（M1/M6 的 clone 与切版本都靠它） */

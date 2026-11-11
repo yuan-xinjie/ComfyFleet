@@ -27,6 +27,7 @@
 | 局域网集群同步 | 源端创建带密码的集群，目标端选择本机实例接收；模型、包、本体、节点分阶段应用；URL wheel 不预下载，目标端直接按 URL 安装；wheel 文件名/METADATA 版本不一致时先由 uv 安装，被拒绝后自动用目标 venv 的 pip 重试，仍失败只提示不中断 |
 | 加速库 | 按环境筛选可安装的 FlashAttention / SageAttention / Nunchaku / xformers / Triton wheel |
 | 应用内更新 | 设置 → 更新：从 ModelScope 检查新版本，用户点确认后才下载安装，签名校验通过才允许安装；有实例在跑时直接拒绝 |
+| 按需运行时 | uv 与 Git（含 git-lfs）不打进安装包，默认不装；启动自检发现缺失会在顶部提示，点「去下载」到 设置 → 运行 里按需下载并校验 SHA256 |
 
 ### 进度与控制台行为
 
@@ -110,21 +111,43 @@
 
 ---
 
+## 按需运行时（uv / Git）
+
+安装包**不再**包含 `resources/mingit.zip`（38 MB）和 `resources/uv.exe`（54 MB），
+因此安装包与更新包都只有约 10 MB。默认一个运行时都不装：
+
+| 组件 | 什么时候需要 | 装到哪（统一在 `<数据目录>\runtime\` 下） |
+|---|---|---|
+| uv 0.8.8 | 安装环境、装依赖、切版本 | `runtime\uv\uv-0.8.8\uv.exe` |
+| MinGit 2.56.0.4 | 拉 ComfyUI、拉/更新节点、切版本 | `runtime\git\mingit-2.56.0.4\` |
+| git-lfs 3.8.1 | 拉带大文件的节点仓库 | 同上，`ucrt64\libexec\git-core\git-lfs.exe` |
+
+老版本（0.1.x）把 uv 放在安装目录、把 MinGit 放在 `data\git`：启动时会自动迁移到
+`runtime\` 下，不用重新下载。
+
+- **默认不装、不自动联网**：只有用户在 `设置 → 运行 → 运行时（可选）` 点了「下载」才会请求网络。
+- **启动自检**：每次启动都会查一次；缺 uv / Git / git-lfs 时顶部出现提示条，
+  点「去下载」直接跳到运行时面板，装完回到首页提示条自动消失。
+- **校验**：下载后先比 SHA256，再解包（拒绝 zip 穿越、符号链接、超大解压），最后跑一次
+  `--version` 确认可执行；任何一步失败都不落盘。
+- **镜像**：默认先试 ModelScope 的 `ComfyFleet/runtime/<文件名>`，404 再回退 GitHub
+  （`设置 → 网络与镜像` 里配了 GitHub 代理就走代理）。想让它走 ModelScope，
+  把这三个 zip 传到该目录即可：
+  `uv-x86_64-pc-windows-msvc-0.8.8.zip`、`MinGit-2.56.0.4-64-bit.zip`、`git-lfs-windows-amd64-v3.8.1.zip`。
+
 ## 开发
 
 前置：Node 20+ / pnpm、Rust stable（MSVC）、VS Build Tools、WebView2
 
 ```powershell
 pnpm install
-pwsh -File scripts/fetch-mingit.ps1   # 打包资源：MinGit（38 MB，校验 SHA256）
-pwsh -File scripts/fetch-uv.ps1       # 打包资源：uv.exe（54 MB，校验 SHA256）
 pnpm tauri dev          # 开发
 pnpm typecheck          # 前端类型检查
 pnpm tauri build        # 出 NSIS 安装包
 ```
 
-两个 `fetch-*.ps1` 下载的二进制不进 git（`.gitignore` 已排除），只跑 `pnpm tauri dev`
-不需要它们；`pnpm tauri build` 缺文件会直接失败。
+uv 与 Git 不再随安装包分发：开发时首次用到会在 `设置 → 运行 → 运行时` 里提示下载，
+装一次就留在数据目录里。安装包因此只有约 10 MB，更新包同理。
 
 产物：`src-tauri/target/release/bundle/nsis/`
 
