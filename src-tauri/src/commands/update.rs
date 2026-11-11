@@ -242,6 +242,9 @@ pub async fn app_update_install(
         .await;
 
     if let Err(e) = result {
+        // 没能装上（下载中断 / 签名不符 / 安装器起不来）：把「正在退出」标记撤掉，
+        // 让实例监督恢复正常，用户不必为了恢复功能重启应用。
+        state.cancel_shutdown();
         let message = format!("更新失败：{e}");
         let _ = on_event.send(UpdateEvent {
             stage: "done".into(),

@@ -120,6 +120,12 @@ impl AppState {
         self.shutting_down.store(true, Ordering::SeqCst);
     }
 
+    /// 撤销 begin_shutdown。用在「准备退出但没退成」的路径上（例如更新包下载失败），
+    /// 否则这次会话里实例监督会一直是停的，用户只能重启应用才能恢复。
+    pub fn cancel_shutdown(&self) {
+        self.shutting_down.store(false, Ordering::SeqCst);
+    }
+
     pub fn is_shutting_down(&self) -> bool {
         self.shutting_down.load(Ordering::SeqCst)
     }
