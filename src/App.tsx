@@ -265,50 +265,43 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selected, screen])
 
+  // 启动自检缺运行时：做成页面内的一条提示（放在「实例」标题上方），不用浮层，
+  // 免得压住标题和右侧按钮。
+  const runtimeNotice =
+    runtimeIssues.length > 0 && !runtimeBannerClosed ? (
+      <div className="banner warn" role="status" style={{ alignItems: 'center' }}>
+        <span className="mark">
+          <Icon name="download" size={13} />
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <strong>缺少运行时：{runtimeIssues.join('、')}</strong>
+          <div className="hint" style={{ marginTop: 2 }}>
+            安装环境、拉取 ComfyUI 与节点都要用到这些组件；到 设置 → 运行 里按需下载，不点就不会联网。
+          </div>
+        </div>
+        <button
+          className="ghost sm"
+          onClick={() => {
+            setFocusSection('runtime')
+            openSettings()
+          }}
+        >
+          去下载
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => setRuntimeBannerClosed(true)}
+          aria-label="关闭提示"
+          title="本次不再提示"
+        >
+          ×
+        </button>
+      </div>
+    ) : null
+
   return (
     <div className="shell">
       <div className="main" data-nav-dir={navDir}>
-        {runtimeIssues.length > 0 && !runtimeBannerClosed && screen !== 'global' && (
-          <div
-            className="banner"
-            role="status"
-            style={{
-              position: 'fixed',
-              top: 46,
-              left: 16,
-              right: 16,
-              zIndex: 70,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            <Icon name="download" size={15} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <strong>缺少运行时：{runtimeIssues.join('、')}</strong>
-              <div className="hint">
-                安装环境、拉取 ComfyUI 与节点都要用到这些组件。可在设置里按需下载，不点就不会联网。
-              </div>
-            </div>
-            <button
-              className="ghost sm"
-              onClick={() => {
-                setFocusSection('runtime')
-                openSettings()
-              }}
-            >
-              去下载
-            </button>
-            <button
-              className="icon-btn"
-              onClick={() => setRuntimeBannerClosed(true)}
-              aria-label="关闭提示"
-              title="本次不再提示"
-            >
-              ×
-            </button>
-          </div>
-        )}
         <Page active={screen === 'global'}>
           <>
             <header className="topbar" data-tauri-drag-region="deep">
@@ -496,6 +489,7 @@ export default function App() {
               }}
               onSelect={select}
               onReload={reload}
+              notice={runtimeNotice}
             />
             <footer className="bottombar home-bottombar">
               <div className="bottombar-inner home-status">

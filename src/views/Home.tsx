@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import coreLogo from '../assets/core-logo.svg'
 import { api, errText } from '../lib/api'
 import { startupDepsTargets } from '../lib/deps'
@@ -33,6 +33,8 @@ interface Props {
   onCreated: (id: string) => void
   onSelect: (id: string) => void
   onReload: () => Promise<unknown>
+  /** 启动自检发现缺运行时时的提示条，由 App 传进来（放在标题上方，不遮挡内容） */
+  notice?: ReactNode
 }
 
 type Modal = 'create' | 'import' | 'remote' | null
@@ -193,6 +195,7 @@ export default function Home({
   onCreated,
   onSelect,
   onReload,
+  notice,
 }: Props) {
   const [modal, setModal] = useState<Modal>(null)
   const [busy, setBusy] = useState(false)
@@ -580,6 +583,7 @@ export default function Home({
     <>
       <div className="content">
         <div className="home">
+          {notice}
           <div className="page-head">
             <div className="page-head-text">
               <h1>实例</h1>
