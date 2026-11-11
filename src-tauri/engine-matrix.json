@@ -1,0 +1,691 @@
+{
+  "version": 2,
+  "updatedAt": "2026-11-03",
+  "torchIndexBase": "https://download.pytorch.org/whl",
+  "pythons": [
+    {
+      "version": "3.12",
+      "status": "verified",
+      "note": "默认；venv + torch 实测通过（未跑 ComfyUI 出图）"
+    },
+    {
+      "version": "3.13",
+      "status": "verified",
+      "note": "2026-10-28 实测通过：3.13.6 + cu130 + ComfyUI 全套 requirements（88 个包，无本地编译）"
+    },
+    {
+      "version": "3.11",
+      "status": "untested",
+      "note": "能用但未验证"
+    },
+    {
+      "version": "3.14",
+      "status": "untested",
+      "note": "torch 有 cp314 轮子，第三方节点多半还没有"
+    }
+  ],
+  "engines": [
+    {
+      "id": "nvidia-cu132-2.14.1",
+      "label": "NVIDIA · CUDA 13.2 · torch 2.14.1",
+      "vendor": "nvidia",
+      "cudaVersion": "13.2",
+      "torchVersion": "2.14.1",
+      "indexTag": "cu132",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu132-2.14.0",
+      "label": "NVIDIA · CUDA 13.2 · torch 2.14.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.2",
+      "torchVersion": "2.14.0",
+      "indexTag": "cu132",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu132-2.13.0",
+      "label": "NVIDIA · CUDA 13.2 · torch 2.13.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.2",
+      "torchVersion": "2.13.0",
+      "indexTag": "cu132",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu132-2.12.1",
+      "label": "NVIDIA · CUDA 13.2 · torch 2.12.1",
+      "vendor": "nvidia",
+      "cudaVersion": "13.2",
+      "torchVersion": "2.12.1",
+      "indexTag": "cu132",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu132-2.12.0",
+      "label": "NVIDIA · CUDA 13.2 · torch 2.12.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.2",
+      "torchVersion": "2.12.0",
+      "indexTag": "cu132",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130",
+      "label": "NVIDIA · CUDA 13.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.14.1",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13",
+        "3.14"
+      ],
+      "launchArgs": [],
+      "verified": true,
+      "note": "2026-10-28 实测通过：torch 2.14.1+cu130 / RTX 5090 / CUDA=True；Py3.13 亦跑通（requirements 88 包）"
+    },
+    {
+      "id": "nvidia-cu130-2.14.0",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.14.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.14.0",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130-2.13.0",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.13.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.13.0",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130-2.12.1",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.12.1",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.12.1",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130-2.12.0",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.12.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.12.0",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130-2.11.0",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.11.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.11.0",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130-2.10.0",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.10.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.10.0",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130-2.9.1",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.9.1",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.9.1",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu130-2.9.0",
+      "label": "NVIDIA · CUDA 13.0 · torch 2.9.0",
+      "vendor": "nvidia",
+      "cudaVersion": "13.0",
+      "torchVersion": "2.9.0",
+      "indexTag": "cu130",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu129-2.8.0",
+      "label": "NVIDIA · CUDA 12.9 · torch 2.8.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.9",
+      "torchVersion": "2.8.0",
+      "indexTag": "cu129",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu128-2.11.0",
+      "label": "NVIDIA · CUDA 12.8 · torch 2.11.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.8",
+      "torchVersion": "2.11.0",
+      "indexTag": "cu128",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu128-2.10.0",
+      "label": "NVIDIA · CUDA 12.8 · torch 2.10.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.8",
+      "torchVersion": "2.10.0",
+      "indexTag": "cu128",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu128-2.9.1",
+      "label": "NVIDIA · CUDA 12.8 · torch 2.9.1",
+      "vendor": "nvidia",
+      "cudaVersion": "12.8",
+      "torchVersion": "2.9.1",
+      "indexTag": "cu128",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu128-2.9.0",
+      "label": "NVIDIA · CUDA 12.8 · torch 2.9.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.8",
+      "torchVersion": "2.9.0",
+      "indexTag": "cu128",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu128-2.8.0",
+      "label": "NVIDIA · CUDA 12.8 · torch 2.8.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.8",
+      "torchVersion": "2.8.0",
+      "indexTag": "cu128",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.14.1",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.14.1",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.14.1",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.14.0",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.14.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.14.0",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.13.0",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.13.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.13.0",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.12.1",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.12.1",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.12.1",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.12.0",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.12.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.12.0",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.11.0",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.11.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.11.0",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.10.0",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.10.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.10.0",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.9.1",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.9.1",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.9.1",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.9.0",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.9.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.9.0",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "nvidia-cu126-2.8.0",
+      "label": "NVIDIA · CUDA 12.6 · torch 2.8.0",
+      "vendor": "nvidia",
+      "cudaVersion": "12.6",
+      "torchVersion": "2.8.0",
+      "indexTag": "cu126",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu",
+      "label": "CPU",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.14.1",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13",
+        "3.14"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": true,
+      "note": "2026-10-28 实测通过：torch 2.14.1+cpu / ComfyUI v0.43.1"
+    },
+    {
+      "id": "cpu-2.14.0",
+      "label": "CPU · torch 2.14.0",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.14.0",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.13.0",
+      "label": "CPU · torch 2.13.0",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.13.0",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.12.1",
+      "label": "CPU · torch 2.12.1",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.12.1",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.12.0",
+      "label": "CPU · torch 2.12.0",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.12.0",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.11.0",
+      "label": "CPU · torch 2.11.0",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.11.0",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.10.0",
+      "label": "CPU · torch 2.10.0",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.10.0",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.9.1",
+      "label": "CPU · torch 2.9.1",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.9.1",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.9.0",
+      "label": "CPU · torch 2.9.0",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.9.0",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    },
+    {
+      "id": "cpu-2.8.0",
+      "label": "CPU · torch 2.8.0",
+      "vendor": "any",
+      "cudaVersion": null,
+      "torchVersion": "2.8.0",
+      "indexTag": "cpu",
+      "pythonSupport": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ],
+      "launchArgs": [
+        "--cpu"
+      ],
+      "verified": false,
+      "note": null
+    }
+  ]
+}

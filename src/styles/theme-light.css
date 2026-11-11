@@ -1,0 +1,295 @@
+/* 亮色主题只在少数历史硬编码上做覆盖；主体颜色已经在 base.css 的
+   :root.theme-light token 和 --card / --bg-* 变量里完成。 */
+
+:root.theme-light {
+  /* 悬浮：一层很淡的主题色底，边框与底色同色；不压暗、不再叠第二圈边。 */
+  --hover-bg: color-mix(in srgb, var(--blue) 8%, transparent);
+  --hover-fill: color-mix(in srgb, var(--blue) 6%, var(--card));
+  --hover-border: var(--blue);
+  --hover-ink: var(--ink);
+}
+
+:root.theme-light .topbar {
+  border-bottom-color: var(--line);
+}
+/* 悬浮：铺淡主题色，边框与底色同色，避免出现“灰底亮边”的断层。 */
+:root.theme-light .icon-btn:not(.danger):not(.inst-del):hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+  color: var(--blue);
+}
+:root.theme-light .win-btn:not(.close):hover:not(:disabled) {
+  background: transparent;
+  color: var(--blue-ink);
+}
+:root.theme-light .win-btn:active:not(:disabled) {
+  background: var(--hover-3);
+}
+:root.theme-light .flag-row:hover,
+:root.theme-light .share-row:hover,
+:root.theme-light .node-row:hover,
+:root.theme-light .tag-row:hover {
+  background: var(--hover-1);
+}
+:root.theme-light .select-option.active {
+  background: color-mix(in srgb, var(--blue) 7%, transparent);
+}
+:root.theme-light .select-option.active[aria-selected='true'] {
+  background: var(--blue-wash);
+}
+/* 按钮 / 页签 / 卡片悬浮：边框与淡主题色底同色；卡片仍保留完整主题色描边。 */
+:root.theme-light .tab:not(.active):hover {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+  color: var(--hover-ink);
+}
+:root.theme-light .topbar-action:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+  color: var(--hover-ink);
+}
+:root.theme-light .settings-nav:not(.active):hover {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+  color: var(--hover-ink);
+}
+:root.theme-light button.ghost:not(.danger):not(.stop):hover:not(:disabled),
+:root.theme-light button.dir-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+  color: var(--hover-ink);
+}
+:root.theme-light .inst-card:hover {
+  background: var(--card);
+  border-color: var(--hover-border);
+}
+:root.theme-light button.primary:hover:not(:disabled) {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+/* 当前页签的蓝底由 pages.css 的滑动底片提供；这里只保证文字反色。 */
+:root.theme-light .tab.active,
+:root.theme-light .tab.active:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--on-accent, #fff);
+}
+:root.theme-light .tab.active .tab-key {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+:root.theme-light .tab-key,
+:root.theme-light .select-option-badge {
+  background: var(--hover-1);
+}
+
+/* 表单控件：亮色下输入框 / 下拉直接取卡片底，悬浮和聚焦只改边框与淡主题底。 */
+:root.theme-light :is(
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'],
+  select,
+  textarea
+) {
+  background: var(--card);
+  box-shadow: inset 0 0 0 0 var(--blue);
+}
+:root.theme-light :is(
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'],
+  select,
+  textarea
+):not(:disabled):not(:focus):hover {
+  background: var(--hover-fill);
+  border-color: var(--blue);
+}
+/* 聚焦用内描边把 1px 边框视觉上加到 2px；不改变外框尺寸，下方内容不位移。 */
+:root.theme-light :is(
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'],
+  select,
+  textarea
+):focus {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+  outline: none;
+}
+:root.theme-light input.color-chip { box-shadow: none; }
+:root.theme-light .select-trigger,
+:root.theme-light .inline-field .select-trigger {
+  background: var(--card);
+  box-shadow: inset 0 0 0 0 var(--blue);
+}
+:root.theme-light .select-trigger:hover:not(:disabled):not([aria-expanded='true']) {
+  background: var(--hover-fill);
+  border-color: var(--line-strong);
+  color: var(--theme-ink);
+}
+/* 聚焦 / 展开：不再套外圈，也不改外框尺寸；边框 + 内描边视觉上是 2px。 */
+:root.theme-light .select-trigger[aria-expanded='true'],
+:root.theme-light .select-trigger:focus-visible {
+  background: var(--card);
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+  outline: none;
+}
+:root.theme-light .select-trigger:disabled {
+  background: var(--card);
+  color: var(--ink-4);
+}
+/* 分段选择：按截图单独处理成无边框的软底控件；轨道、选中、悬浮都不画边。 */
+:root.theme-light .seg {
+  background: var(--hover-1);
+  border: 0;
+  --seg-active-bg: var(--blue-wash);
+}
+:root.theme-light .seg button {
+  border: 0;
+  color: var(--ink-3);
+}
+:root.theme-light .seg button:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border: 0;
+  color: var(--ink);
+}
+:root.theme-light .seg button.active,
+:root.theme-light .seg button.active:hover {
+  background: transparent;
+  border: 0;
+  color: var(--blue-ink);
+  font-weight: 600;
+  box-shadow: none;
+}
+:root.theme-light .seg button:focus-visible {
+  outline: 2px solid var(--blue-ring);
+  outline-offset: 2px;
+  border: 0;
+}
+:root.theme-light .select-menu {
+  /* 浮层必须压住下面的字段；用卡片底色但保持实色，只让 trigger / 输入框跟卡片 alpha。 */
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+}
+/* 操作日志的展开详情是“日志正文”，不是终端本身；亮色下用浅底深字，别把终端黑底搬过来。 */
+:root.theme-light .act-detail {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-color: var(--line-2);
+  color: var(--ink-2);
+}
+:root.theme-light .info-tip-pop {
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+}
+:root.theme-light button.primary:disabled {
+  background: var(--sunken-2);
+}
+:root.theme-light .metric-track {
+  background: var(--sunken);
+  box-shadow: inset 0 1px 2px rgba(20, 26, 40, 0.12);
+}
+:root.theme-light .toast {
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border-color: var(--line-strong);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+}
+:root.theme-light .bottombar {
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  border-top-color: var(--line);
+  backdrop-filter: blur(14px) saturate(160%);
+}
+:root.theme-light .bottombar .icon-btn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+  color: var(--blue);
+}
+:root.theme-light .bottombar .primary:disabled,
+:root.theme-light .bottombar .ghost:disabled,
+:root.theme-light .bottombar .danger:disabled {
+  background: var(--hover-1);
+  border-color: var(--line-2);
+  color: var(--ink-4);
+}
+:root.theme-light .modal {
+  background: var(--modal);
+  border-color: var(--line-strong);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+}
+/* 操作弹窗里的控制台和正文共用一块底，不再单独铺一条色带。 */
+:root.theme-light .op-run-console {
+  background: transparent;
+  color: var(--ink);
+  border-color: transparent;
+}
+:root.theme-light .modal.console pre.console-log,
+:root.theme-light .modal pre.install-log {
+  background: var(--sunken);
+  color: var(--ink);
+  border-color: var(--line-2);
+}
+:root.theme-light .op-run-console .op-run-time,
+:root.theme-light .op-run-console .op-run-line-step,
+:root.theme-light .op-run-console .op-run-meter-pct,
+:root.theme-light .op-run-console-empty {
+  color: var(--ink-3);
+}
+:root.theme-light .op-run-net-tx {
+  color: var(--ink-2);
+}
+:root.theme-light .op-run-count {
+  background: var(--hover-2);
+  color: var(--ink-3);
+}
+/* 只有弹窗里的控制台换成亮底；概览和控制台页签始终是深色终端，
+   那里的日志颜色在 deps.css 里用固定的终端色，不跟主题翻转。 */
+:root.theme-light .modal pre.install-log.log-colored .log-line.dim { color: var(--ink-3); }
+:root.theme-light .modal pre.install-log.log-colored .log-line.progress { color: var(--blue-ink); }
+:root.theme-light .modal pre.install-log.log-colored .log-line.err { color: var(--red); }
+:root.theme-light .modal pre.install-log.log-colored .log-line.warn { color: var(--orange); }
+:root.theme-light .modal pre.install-log.log-colored .log-line.ok,
+:root.theme-light .modal pre.install-log.log-colored .log-tag-info { color: var(--green); }
+:root.theme-light .sync-log-body,
+:root.theme-light .sync-prepare-log pre {
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+:root.theme-light .op-run-tab.is-on .op-run-count {
+  background: var(--blue-wash);
+  color: var(--blue-ink);
+}
+/* legacy.css 给所有 code 固定了深色底；亮色下按普通代码块处理，避免版本确认条里出现黑药丸。 */
+:root.theme-light code {
+  background: var(--sunken);
+  border-color: var(--line-2);
+  color: var(--ink-2);
+}

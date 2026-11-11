@@ -1,0 +1,18 @@
+/* ============================================================
+   ComfyFleet 样式入口
+   按加载顺序拆分；不要在这里写规则，新增样式放进对应模块。
+   顺序即层叠顺序：base → primitives → legacy → refine → pages → deps → controls → cluster。
+   ============================================================ */
+@import './styles/base.css';
+@import './styles/primitives.css';
+@import './styles/legacy.css';
+@import './styles/refine.css';
+@import './styles/pages.css';
+@import './styles/deps.css';
+@import './styles/controls.css';
+@import './styles/wheel-panel.css';
+@import './styles/cluster.css';
+@import './styles/motion.css';
+@import './styles/theme-light.css';
+@import './styles/theme-dark.css';
+@import './styles/console-dock.css';

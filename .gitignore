@@ -1,0 +1,37 @@
+node_modules/
+dist/
+*.log
+.vite/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+# 发布产物（latest.json + 签名安装包），由 scripts/release.ps1 生成，只进 ModelScope
+dist-update/
+.env
+.env.local
+
+# 打包用的大二进制：由 scripts/fetch-mingit.ps1 / fetch-uv.ps1 下载，不进 git 历史
+src-tauri/resources/mingit.zip
+src-tauri/resources/uv.exe
+
+# 开发期自用的 UI 自动化工具与截图（CDP 走 WebView2 调试端口）
+.dsh-tools/
+shot*.png
+_screenshot/
+
+# impeccable 评审留档（截图、临时脚本、roll 记录，本地保留即可）
+.impeccable/
+
+# 本地测试残留：ComfyUI-test 只是测试快照，sd 是第三方进程管理工具，都不属于本仓库
+ComfyUI-test/
+sd/
+
+# 临时 / 备份 / 半成品文件
+*.placeholder
+*.corrupt-*
+*.bak
+*.bak-*
+*.orig
+*.rej
+audit-fix-backup-*.zip

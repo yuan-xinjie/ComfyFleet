@@ -1,0 +1,263 @@
+/* ============================================================
+   交互动效
+   状态变化靠颜色、边框、光环与一次轻落说明；不移动布局。
+   所有时长都短于一次呼吸，避免操作被动画拖慢。
+   ============================================================ */
+
+:root {
+  --motion-press: 90ms;
+  --motion-ui: 180ms;
+  --motion-focus: 220ms;
+  /* 焦点光环从中间状态慢慢落位，不用全局那种前 30ms 就冲完的强 ease-out。 */
+  --ease-focus: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 所有可交互表面共用同一条缓动，避免有的元素“跳”、有的元素“飘”。 */
+button,
+button[class],
+.btn,
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input:not([type]),
+select,
+textarea,
+.select-trigger,
+.tab,
+.tab-key,
+.settings-nav,
+.settings-nav .icon,
+.seg button,
+.icon-btn,
+.info-tip,
+.select-option,
+.select-option-check,
+.dir-btn,
+.inst-run,
+.badge,
+.node-row,
+.tag-row,
+.flag-row,
+.share-row,
+.check-row,
+.cluster-client,
+.snap-row,
+.snap-row-head,
+.snap-trigger,
+.snap-acc-trigger,
+.snap-cta,
+.hint-more > summary,
+.eff-more summary,
+.snap-inventory summary {
+  transition-property: background-color, border-color, border-width, color, box-shadow, opacity, transform;
+  transition-duration: var(--motion-ui);
+  transition-timing-function: var(--ease);
+}
+
+/*
+ * 输入类：默认保留一个零宽的环，聚焦时只扩宽，不从“没有阴影”跳到“有阴影”。
+ * 原先 box-shadow 从单层 inset 变成两层 outer + inset，浏览器无法插值，所以会直接跳。
+ */
+:is(
+  input[type='text'],
+  input[type='number'],
+  input[type='password'],
+  input:not([type]),
+  select,
+  textarea
+) {
+  box-shadow: 0 0 0 0 transparent, inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  transition-property: border-color, border-width, background-color, color, box-shadow;
+  transition-duration: var(--motion-ui);
+  transition-timing-function: var(--ease-focus);
+}
+
+:is(
+  input[type='text'],
+  input[type='number'],
+  input[type='password'],
+  input:not([type]),
+  select,
+  textarea
+):not(:disabled):not(:focus):hover {
+  border-color: color-mix(in srgb, var(--blue) 30%, var(--line-strong));
+}
+
+:is(
+  input[type='text'],
+  input[type='number'],
+  input[type='password'],
+  input:not([type]),
+  select,
+  textarea
+):focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-ring), inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  transition-duration: var(--motion-focus);
+}
+
+/* 边框和环已经说明焦点，去掉第二层瞬间出现的 outline，避免“啪”一下加一圈。 */
+:is(
+  input[type='text'],
+  input[type='number'],
+  input[type='password'],
+  input:not([type]),
+  select,
+  textarea
+):focus-visible {
+  outline: none;
+}
+
+.select-trigger {
+  box-shadow: 0 0 0 0 transparent, inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  transition-duration: var(--motion-focus);
+  transition-timing-function: var(--ease-focus);
+}
+
+.select-trigger:focus-visible:not(:disabled),
+.select-trigger[aria-expanded='true']:not(:disabled) {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-ring), inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  outline: none;
+  transition-duration: var(--motion-focus);
+}
+
+.select-trigger:hover:not(:disabled):not([aria-expanded='true']) {
+  background-color: color-mix(in srgb, var(--surface-2) 44%, #050509);
+}
+
+/* 按钮：悬停只换面色；按下时 2% 的压缩给出触感，松开自然回弹。
+   下拉 trigger 与分段选择都不压缩：前者只展开菜单，后者让底片滑动，文字不跟着变小。 */
+:where(button, .btn):not(.win-btn):not(.select-trigger):not(.seg button):not(:disabled):active {
+  transform: scale(0.97);
+  transition-duration: var(--motion-press);
+}
+
+.icon-btn svg,
+.tab svg,
+.dir-btn svg,
+.settings-nav svg {
+  transition: transform var(--motion-ui) var(--ease), color var(--motion-ui) var(--ease);
+}
+
+.icon-btn:hover:not(:disabled) svg {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.dir-btn:hover:not(:disabled) svg {
+  transform: translateX(1px);
+}
+
+.settings-nav.active svg {
+  transform: translateX(1px);
+}
+
+.info-tip {
+  transition-duration: var(--motion-ui);
+}
+.info-tip:hover,
+.info-tip[aria-expanded='true'] {
+  transform: scale(1.08);
+}
+
+/* 选中项“落位”一次；不循环，也不改变布局。 */
+@keyframes control-select {
+  from {
+    opacity: 0.72;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.tab.active,
+.settings-nav.active,
+.seg button.active,
+.select-option[aria-selected='true'] {
+  animation: control-select var(--motion-ui) var(--ease-out);
+}
+
+/* 下拉选项：悬停和键盘高亮走同一条过渡，对勾用缩放淡入。 */
+.select-option {
+  transition-duration: 140ms;
+}
+
+.select-option-check {
+  transform: scale(0.55);
+  transition: opacity 140ms var(--ease), transform 160ms var(--ease-out);
+}
+.select-option[aria-selected='true'] .select-option-check {
+  transform: scale(1);
+}
+
+/* 滑杆与颜色块：拖拽/悬停时给拇指一点体积感，不改变轨道布局。 */
+.card-alpha-field input[type='range']::-webkit-slider-thumb {
+  transition: transform 160ms var(--ease-out), background-color 160ms var(--ease);
+}
+.card-alpha-field input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+.card-alpha-field input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.04);
+}
+
+input.color-chip {
+  transition: transform 160ms var(--ease), border-color 160ms var(--ease);
+}
+input.color-chip:hover {
+  transform: scale(1.04);
+}
+
+/* 状态色切换时，圆点和状态框跟文字同一拍，不要只让文字变。 */
+.badge .dot,
+.snap-dot {
+  transition:
+    background-color var(--motion-ui) var(--ease),
+    border-color var(--motion-ui) var(--ease),
+    opacity var(--motion-ui) var(--ease);
+}
+
+.snap-save-box {
+  transition:
+    background-color var(--motion-ui) var(--ease),
+    border-color var(--motion-ui) var(--ease),
+    color var(--motion-ui) var(--ease);
+}
+
+/* 行级交互（节点、标签、共享目录等）只温一层底色。 */
+.node-row,
+.tag-row,
+.flag-row,
+.share-row,
+.check-row,
+.cluster-client,
+.snap-row {
+  transition-duration: 160ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab.active,
+  .settings-nav.active,
+  .seg button.active,
+  .seg-glider,
+  .select-option[aria-selected='true'] {
+    animation: none;
+  }
+  .seg-glider {
+    transition: none;
+  }
+  :where(button, .btn):not(.win-btn):not(:disabled):active,
+  .icon-btn:hover:not(:disabled) svg,
+  .dir-btn:hover:not(:disabled) svg,
+  .settings-nav.active svg,
+  .info-tip:hover,
+  .info-tip[aria-expanded='true'],
+  .select-option-check,
+  .card-alpha-field input[type='range']:hover::-webkit-slider-thumb,
+  .card-alpha-field input[type='range']:active::-webkit-slider-thumb,
+  input.color-chip:hover {
+    transform: none;
+  }
+}

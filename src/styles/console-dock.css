@@ -1,0 +1,671 @@
+/* ============================================================
+   悬浮控制台
+   收起：贴底栏的进度条（空闲时缩成把手）
+   悬停：半屏浮起，半透明，底下页面仍可见
+   点击：整块展开覆盖内容区
+   ============================================================ */
+
+.cdock-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+}
+
+.cdock-scrim {
+  position: fixed;
+  inset: 96px 0 48px;
+  background: rgba(3, 4, 8, 0.34);
+  animation: cdock-fade 0.18s var(--ease-out);
+}
+@keyframes cdock-fade {
+  from { opacity: 0; }
+}
+
+/* ---------------------------------------------------------------- 收起态 */
+
+.cdock-rail {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  width: min(680px, calc(100vw - 56px));
+  height: 32px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  background: rgba(7, 9, 15, 0.86);
+  box-shadow:
+    0 18px 44px -26px #000,
+    0 4px 12px rgba(0, 0, 0, 0.42);
+  color: #c9cedd;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    width 0.24s var(--ease-out),
+    height 0.24s var(--ease-out),
+    opacity 0.2s var(--ease-out),
+    transform 0.24s var(--ease-out),
+    left 0.24s var(--ease-out),
+    background-color 0.2s var(--ease),
+    border-color 0.16s var(--ease);
+}
+.cdock-rail.is-manual { cursor: grab; }
+.cdock-rail.is-dragging {
+  cursor: grabbing;
+  transition: none;
+}
+body.cdock-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.cdock-rail:hover {
+  border-color: rgba(255, 255, 255, 0.26);
+}
+.cdock-rail:active {
+  background: rgba(11, 14, 22, 0.92);
+}
+.cdock-rail:focus-visible {
+  outline: 2px solid var(--blue-ink);
+  outline-offset: 3px;
+}
+.cdock-rail.is-covered:focus-visible { outline: none; }
+/* 没有任务：收成一枚 56×3 的把手，鼠标进入把手再长回进度条 */
+.cdock-rail.is-hidden {
+  width: 88px;
+  height: 16px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.9;
+}
+.cdock-rail.is-hidden:hover {
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(7, 9, 15, 0.72);
+}
+.cdock-rail.is-hidden .cdock-meter {
+  opacity: 0;
+}
+.cdock-rail.is-hidden .cdock-track { opacity: 0; }
+.cdock-rail.is-hidden::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 3px;
+  border-radius: 999px;
+  background: #9aa3b8;
+  transform: translate(-50%, -50%);
+}
+/* 有任务在跑时，小把手不改变尺寸，只让那根线自己流动 */
+.cdock-rail.is-hidden.is-running::after {
+  background: linear-gradient(
+    90deg,
+    #4166d9 0%,
+    #7ea3ff 28%,
+    #e6eeff 50%,
+    #7ea3ff 72%,
+    #4166d9 100%
+  );
+  background-size: 220% 100%;
+  box-shadow: 0 0 7px rgba(88, 129, 255, 0.55);
+  animation: cdock-rail-sweep 1.8s linear infinite;
+}
+.cdock-rail.is-hidden.is-running::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 64px;
+  height: 9px;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(74, 120, 255, 0.34), transparent 70%);
+  transform: translate(-50%, -50%);
+  animation: cdock-rail-glow 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes cdock-rail-sweep {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+@keyframes cdock-rail-glow {
+  50% { opacity: 0.35; }
+}
+
+.cdock-meter {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 12px 3px 14px;
+  transition: opacity 0.14s var(--ease);
+}
+.cdock-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: #6f7688;
+}
+.cdock-dot.is-live {
+  background: #5ee0a4;
+  box-shadow: 0 0 0 3px rgba(61, 220, 151, 0.14);
+  animation: cdock-breathe 1.8s ease-in-out infinite;
+}
+@keyframes cdock-breathe {
+  50% { opacity: 0.5; }
+}
+.cdock-what {
+  min-width: 0;
+  overflow: hidden;
+  color: #dfe4f2;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdock-what-idle { color: #b6bed0; }
+.cdock-speed {
+  flex: none;
+  color: var(--term-dim);
+  font-size: 11px;
+}
+.cdock-spacer {
+  flex: 1 1 auto;
+  min-width: 6px;
+}
+.cdock-state,
+.cdock-queue {
+  flex: none;
+  color: var(--term-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.cdock-queue { color: #ffc27a; }
+.cdock-pct {
+  flex: none;
+  color: var(--term-ink);
+  font-size: 11px;
+}
+.cdock-chev {
+  flex: none;
+  color: var(--term-dim);
+  transform: rotate(180deg);
+  transition: transform 0.2s var(--ease), color 0.16s var(--ease);
+}
+.cdock-chev.is-down { transform: none; }
+.cdock-rail:hover .cdock-chev,
+.cdock-foot:hover .cdock-chev { color: #fff; }
+
+.cdock-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+  transition: opacity 0.2s var(--ease);
+}
+.cdock-track.is-idle { opacity: 0; }
+.cdock-fill {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  transition: width 0.25s linear;
+}
+.cdock-track.is-indeterminate .cdock-fill {
+  width: 34%;
+  animation: run-progress-indeterminate 1.35s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------- 浮起的面板 */
+
+.cdock-panel {
+  position: fixed;
+  left: calc(50% + var(--cdock-shift, 0px));
+  bottom: 56px;
+  width: min(920px, calc(100vw - 48px));
+  height: min(50vh, 520px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 22px) scale(0.992);
+  transform-origin: 50% 100%;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(8, 10, 17, 0.96), rgba(3, 4, 8, 0.98));
+  box-shadow:
+    0 44px 96px -34px #000,
+    0 12px 28px rgba(0, 0, 0, 0.48);
+  color: var(--term-ink);
+  transition:
+    opacity 0.2s var(--ease-out),
+    transform 0.28s var(--ease-out),
+    width 0.28s var(--ease-out),
+    height 0.28s var(--ease-out);
+}
+.cdock-panel:focus { outline: none; }
+.cdock-panel.is-open {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+  pointer-events: auto;
+}
+.cdock-panel.is-full {
+  width: min(1180px, calc(100vw - 48px));
+  height: calc(100vh - 160px);
+  background: linear-gradient(180deg, rgba(4, 5, 10, 0.98), rgba(3, 4, 8, 0.985));
+}
+
+/* 控制台浮在底栏上方时，toast 往上让位 */
+body.console-dock-on .toast { bottom: 104px; }
+
+.cdock-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 46px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 12, 20, 0.55);
+}
+.cdock-head h2 {
+  margin: 0;
+  color: #f2f4fa;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+}
+.cdock-head .badge {
+  flex: none;
+  height: 20px;
+  padding: 0 7px;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--term-dim);
+  font-size: 10.5px;
+}
+.cdock-head .badge .dot { background: currentColor; }
+.cdock-head .badge.ok {
+  border-color: rgba(61, 220, 151, 0.28);
+  background: rgba(61, 220, 151, 0.1);
+  color: #5ee0a4;
+}
+.cdock-head .badge.warn {
+  border-color: rgba(255, 180, 84, 0.28);
+  background: rgba(255, 180, 84, 0.1);
+  color: #ffc27a;
+}
+.cdock-head .ghost.sm {
+  height: 26px;
+  padding: 0 9px;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: #c9cedd;
+  font-size: 11.5px;
+}
+.cdock-head .ghost.sm:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.cdock-head .ghost.sm:disabled {
+  opacity: 0.4;
+}
+.cdock-head .icon-btn {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-color: transparent;
+  background: transparent;
+  color: #9aa3b8;
+}
+.cdock-head .icon-btn:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.cdock-head .log-font-actions { gap: 3px; }
+.cdock-head .cdock-auto.is-on {
+  color: var(--blue-ink);
+  background: color-mix(in srgb, var(--blue) 16%, transparent);
+}
+.cdock-head .cdock-auto.is-on:hover {
+  color: var(--blue-ink);
+  background: color-mix(in srgb, var(--blue) 24%, transparent);
+}
+.cdock-head .log-font-btn {
+  min-width: 28px;
+  height: 24px;
+  padding: 0 6px;
+}
+.cdock-term { gap: 5px; }
+
+.cdock-log {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 18px 16px;
+  overflow: auto;
+  color: var(--term-ink);
+  font-family: var(--font-mono);
+  font-size: var(--cdock-font, 13.5px);
+  line-height: 1.62;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+  scrollbar-gutter: stable;
+}
+.cdock-log .log-line { display: block; }
+.cdock-log .log-line.dim { color: #7d8496; }
+.cdock-log .log-line.progress { color: #8fb0ff; }
+.cdock-log .log-line.err { color: #ff8b93; }
+.cdock-log .log-line.warn { color: #ffc27a; }
+.cdock-log .log-line.ok { color: #7ee2b8; }
+.cdock-log .log-tag-info { color: #7ee2b8; }
+.cdock-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 100%;
+  padding: 20px;
+  color: var(--term-dim);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.cdock-latest {
+  position: absolute;
+  right: 22px;
+  bottom: 56px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(12, 15, 24, 0.94);
+  color: #dfe4f2;
+  font-size: 11px;
+  box-shadow: 0 10px 24px -12px #000;
+}
+.cdock-latest svg { transform: rotate(180deg); }
+.cdock-panel:has(.cdock-foot.is-rich) .cdock-latest { bottom: 66px; }
+.cdock-latest:hover {
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+}
+
+.cdock-foot {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  background: rgba(8, 10, 17, 0.55);
+  color: #c9cedd;
+  text-align: left;
+  cursor: pointer;
+  transition: height 0.18s var(--ease);
+}
+.cdock-foot.is-rich { height: 58px; }
+.cdock-foot .cdock-meter { padding: 0 12px 3px 14px; }
+.cdock-foot.is-rich .cdock-meter {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 3px;
+  padding: 7px 14px 9px;
+}
+.cdock-foot-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+}
+.cdock-foot.is-rich .cdock-foot-line {
+  flex: none;
+  height: 18px;
+}
+.cdock-stage {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: rgba(91, 140, 255, 0.16);
+  color: #a9c0ff;
+  font-size: 10px;
+  line-height: 18px;
+}
+.cdock-detail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-left: 15px;
+  color: #8c94a8;
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+.cdock-steps {
+  flex: none;
+  color: #aeb6c8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.cdock-detail .cdock-queue { font-size: 10.5px; }
+.cdock-detail .cdock-pct {
+  color: #dfe4f2;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cdock-foot.is-rich .cdock-track { height: 4px; }
+.cdock-foot:hover { background: rgba(255, 255, 255, 0.05); }
+/* 页脚是一条贴着面板底边的长条：不跟全局按钮做按压缩放，缩小会露出底边缝隙 */
+.cdock-foot:active { transform: none !important; }
+.cdock-foot:focus-visible {
+  outline: 2px solid var(--blue-ink);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cdock-rail,
+  .cdock-panel,
+  .cdock-fill,
+  .cdock-chev,
+  .cdock-dot.is-live,
+  .cdock-track.is-indeterminate .cdock-fill {
+    transition: none;
+    animation: none;
+  }
+  .cdock-rail.is-hidden.is-running::after,
+  .cdock-rail.is-hidden.is-running::before {
+    animation: none;
+  }
+  .cdock-rail.is-hidden.is-running::after {
+    background: var(--blue);
+    box-shadow: none;
+  }
+  .cdock-rail.is-hidden.is-running::before { display: none; }
+  .cdock-track.is-indeterminate .cdock-fill {
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+@media (max-width: 1100px) {
+  .cdock-panel { width: calc(100vw - 40px); }
+  .cdock-panel.is-full { width: calc(100vw - 40px); }
+}
+
+/* ---------------------------------------------------------------- 亮色主题 */
+:root.theme-light .cdock-scrim { background: rgba(20, 26, 40, 0.18); }
+
+:root.theme-light .cdock-rail {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 16px 36px -24px rgba(20, 26, 40, 0.45),
+    0 2px 8px rgba(20, 26, 40, 0.08);
+  color: var(--ink-2);
+}
+:root.theme-light .cdock-rail:hover { border-color: var(--line-strong); }
+:root.theme-light .cdock-rail:active { background: var(--surface-2); }
+:root.theme-light .cdock-rail.is-hidden {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+:root.theme-light .cdock-rail.is-hidden::after { background: var(--ink-4); }
+:root.theme-light .cdock-rail.is-hidden.is-running::after {
+  background: linear-gradient(
+    90deg,
+    #2f5bd7 0%,
+    #6f93ff 28%,
+    #c4d4ff 50%,
+    #6f93ff 72%,
+    #2f5bd7 100%
+  );
+  background-size: 220% 100%;
+  box-shadow: 0 0 7px rgba(43, 99, 255, 0.32);
+}
+:root.theme-light .cdock-rail.is-hidden.is-running::before {
+  background: radial-gradient(ellipse at center, rgba(43, 99, 255, 0.2), transparent 70%);
+}
+:root.theme-light .cdock-rail.is-hidden:hover {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.92);
+}
+:root.theme-light .cdock-dot { background: var(--ink-4); }
+:root.theme-light .cdock-dot.is-live {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(10, 122, 83, 0.14);
+}
+:root.theme-light .cdock-what { color: var(--ink-1); }
+:root.theme-light .cdock-what-idle { color: var(--ink-3); }
+:root.theme-light .cdock-speed { color: var(--ink-3); }
+:root.theme-light .cdock-state,
+:root.theme-light .cdock-queue { color: var(--ink-4); }
+:root.theme-light .cdock-queue { color: #9a5b00; }
+:root.theme-light .cdock-pct { color: var(--ink-1); }
+:root.theme-light .cdock-chev { color: var(--ink-4); }
+:root.theme-light .cdock-rail:hover .cdock-chev,
+:root.theme-light .cdock-foot:hover .cdock-chev { color: var(--ink-1); }
+:root.theme-light .cdock-track { background: var(--line-2); }
+
+:root.theme-light .cdock-panel {
+  border-color: var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.965), rgba(246, 249, 255, 0.985));
+  box-shadow:
+    0 36px 80px -38px rgba(20, 26, 40, 0.42),
+    0 8px 24px rgba(20, 26, 40, 0.1);
+  color: var(--ink-1);
+}
+:root.theme-light .cdock-panel.is-full {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.995));
+}
+:root.theme-light .cdock-head {
+  border-bottom-color: var(--line-2);
+  background: rgba(248, 250, 255, 0.82);
+}
+:root.theme-light .cdock-head h2 { color: var(--ink-1); }
+:root.theme-light .cdock-head .badge {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+:root.theme-light .cdock-head .badge.ok {
+  border-color: rgba(10, 122, 83, 0.28);
+  background: rgba(10, 122, 83, 0.08);
+  color: #0a7a53;
+}
+:root.theme-light .cdock-head .badge.warn {
+  border-color: rgba(154, 91, 0, 0.28);
+  background: rgba(154, 91, 0, 0.08);
+  color: #9a5b00;
+}
+:root.theme-light .cdock-head .ghost.sm {
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+:root.theme-light .cdock-head .ghost.sm:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--hover-2);
+  color: var(--ink-1);
+}
+:root.theme-light .cdock-head .icon-btn { color: var(--ink-4); }
+:root.theme-light .cdock-head .icon-btn:hover {
+  background: var(--hover-2);
+  color: var(--ink-1);
+}
+:root.theme-light .cdock-head .cdock-auto.is-on {
+  color: var(--blue-ink);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+}
+:root.theme-light .cdock-head .cdock-auto.is-on:hover {
+  background: color-mix(in srgb, var(--blue) 16%, transparent);
+}
+:root.theme-light .cdock-log { color: var(--ink-1); }
+:root.theme-light .cdock-log .log-line.dim { color: var(--ink-4); }
+:root.theme-light .cdock-log .log-line.progress { color: #2450c9; }
+:root.theme-light .cdock-log .log-line.err { color: #b4232f; }
+:root.theme-light .cdock-log .log-line.warn { color: #9a5b00; }
+:root.theme-light .cdock-log .log-line.ok,
+:root.theme-light .cdock-log .log-tag-info { color: #0a7a53; }
+:root.theme-light .cdock-empty { color: var(--ink-4); }
+:root.theme-light .cdock-latest {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  box-shadow: 0 10px 24px -14px rgba(20, 26, 40, 0.35);
+}
+:root.theme-light .cdock-latest:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-1);
+}
+:root.theme-light .cdock-foot {
+  border-top-color: var(--line-2);
+  background: rgba(248, 250, 255, 0.72);
+  color: var(--ink-2);
+}
+:root.theme-light .cdock-foot:hover { background: var(--hover-1); }
+:root.theme-light .cdock-stage {
+  background: var(--blue-wash);
+  color: var(--blue-ink);
+}
+:root.theme-light .cdock-detail { color: var(--ink-4); }
+:root.theme-light .cdock-steps { color: var(--ink-3); }
+:root.theme-light .cdock-detail .cdock-queue { color: #9a5b00; }
+:root.theme-light .cdock-detail .cdock-pct { color: var(--ink-1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cdock-foot { transition: none; }
+  :root.theme-light .cdock-rail.is-hidden.is-running::after {
+    background: var(--blue);
+    box-shadow: none;
+  }
+  :root.theme-light .cdock-rail.is-hidden.is-running::before { display: none; }
+}

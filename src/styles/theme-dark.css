@@ -1,0 +1,58 @@
+/* 深色模式：表单控件直接取卡片材质。
+   亮色主题的对应规则在 theme-light.css；这里用 :not(.theme-light) 隔离，
+   不会把深色值带到亮色。disabled 保持原有不可用材质，不在这里改。 */
+
+:root:not(.theme-light) :is(
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'],
+  select,
+  textarea
+):not(:disabled) {
+  background: var(--card);
+}
+
+:root:not(.theme-light) :is(
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'],
+  select,
+  textarea
+):not(:disabled):focus {
+  background: var(--card);
+  /* 和亮色同一套聚焦逻辑：1px 边框 + 1px 内描边，视觉 2px；不套外圈，不改圆角。 */
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+  outline: none;
+}
+
+:root:not(.theme-light) .select-trigger:not(:disabled),
+:root:not(.theme-light) .select-trigger[aria-expanded='true']:not(:disabled),
+:root:not(.theme-light) .inline-field .select-trigger:not(:disabled) {
+  background: var(--card);
+}
+
+:root:not(.theme-light) .select-trigger:focus-visible:not(:disabled),
+:root:not(.theme-light) .select-trigger[aria-expanded='true']:not(:disabled) {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+  outline: none;
+}

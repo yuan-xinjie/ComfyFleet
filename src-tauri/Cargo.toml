@@ -1,0 +1,56 @@
+[package]
+name = "comfyfleet"
+version = "0.1.0"
+description = "ComfyFleet：ComfyUI 多实例管理台"
+authors = ["ComfyFleet contributors"]
+edition = "2021"
+rust-version = "1.77.2"
+license = "GPL-3.0-only"
+
+[lib]
+name = "comfyfleet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-log = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+parking_lot = "0.12"
+portable-pty = "0.9"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+ureq = { version = "2", features = ["json"] }
+sha2 = "0.10"
+walkdir = "2"
+hex = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+] }
+
+[profile.release]
+codegen-units = 16
+lto = false
+opt-level = "s"
+panic = "unwind"
+strip = true

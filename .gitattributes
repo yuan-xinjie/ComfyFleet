@@ -1,0 +1,10 @@
+# 统一换行处理：文本按仓库 LF 存，二进制不做转换
+* text=auto
+
+*.png binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.node binary

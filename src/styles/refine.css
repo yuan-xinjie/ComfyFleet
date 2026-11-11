@@ -1,0 +1,434 @@
+/* ------------------------------------------------ 扁平化：少一层装饰，多一层秩序 */
+/* 卡片不再抬升/发光，只靠底色和发丝线分层；按钮回到实色块；嵌套小卡改为分栏。 */
+
+/* 悬浮：边框取与底色同一个 token，边框跟着底色走；亮/深色各自有 accent。 */
+.icon-btn:not(.danger):not(.inst-del):hover:not(:disabled),
+.topbar-action:hover:not(:disabled),
+.settings-nav:not(.active):hover,
+button.ghost:not(.danger):not(.stop):hover:not(:disabled),
+button.dir-btn:hover,
+.bottombar .icon-btn:hover:not(:disabled),
+.tab:not(.active):hover {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+}
+/* 分段选择是唯一不画边的按钮组；深浅色都只铺一层淡底。 */
+.seg button:not(.active):hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+.seg button.active,
+.seg button.active:hover:not(:disabled) {
+  background: transparent;
+  border: 0;
+  color: var(--blue-ink);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+/* 首页实例卡：极淡静态阴影；hover 只换边框，不铺底、不抬升。 */
+.inst-card {
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+  cursor: pointer;
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.inst-card::before,
+.inst-card:hover::before,
+.inst-card.running::before { display: none; animation: none; }
+.inst-card:hover {
+  transform: none;
+  border-color: var(--hover-border, var(--blue-ink));
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+}
+.inst-card:active { transform: none; background: var(--card-press); }
+
+.inst-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: -2px;
+  font-size: 11.5px;
+  color: var(--ink-4);
+}
+.inst-addr { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.inst-addr .mono { color: var(--ink-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inst-card.remote { cursor: default; }
+.inst-card.remote .inst-actions { margin-top: auto; }
+
+.inst-dirs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 4px;
+}
+button.dir-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: background 0.16s var(--ease), border-color 0.16s var(--ease), color 0.16s var(--ease);
+}
+button.dir-btn svg { flex: none; color: var(--ink-4); transition: color 0.16s var(--ease); }
+button.dir-btn:hover {
+  background: var(--hover-1);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+button.dir-btn:hover svg { color: var(--blue-ink); }
+
+.inst-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 12px;
+}
+button.inst-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--blue-wash);
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.16s var(--ease), border-color 0.16s var(--ease), color 0.16s var(--ease);
+}
+button.inst-run:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--blue) 22%, transparent);
+  border-color: color-mix(in srgb, var(--blue) 22%, transparent);
+  color: var(--blue-ink);
+}
+button.inst-run.stop { background: var(--coral-wash); color: var(--coral-ink); }
+button.inst-run.stop:hover:not(:disabled) {
+  background: rgba(255, 106, 77, 0.24);
+  border-color: rgba(255, 106, 77, 0.24);
+  color: var(--coral-ink);
+}
+button.inst-run:disabled {
+  background: var(--hover-1);
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+/* 状态行放在目录按钮和操作按钮之间的空白中央 */
+.inst-mid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+}
+
+.inst-activity {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+.inst-activity.idle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  color: var(--ink-4);
+  font-size: 11.5px;
+}
+.inst-idle-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-4);
+  opacity: 0.7;
+}
+.inst-idle-title { color: var(--ink-3); font-weight: 500; }
+.inst-idle-sub { margin-left: auto; color: var(--ink-4); font-size: 10.5px; }
+
+.inst-task-track {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line-2);
+}
+.inst-task-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width 0.25s var(--ease);
+}
+.inst-task-track.is-indeterminate .inst-task-fill {
+  width: 34%;
+  animation: run-progress-indeterminate 1.35s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inst-task-track.is-indeterminate .inst-task-fill {
+    width: 100%;
+    opacity: 0.4;
+    animation: none;
+  }
+}
+.inst-task-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.inst-task-meta > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+.inst-task-meta > span:last-child {
+  flex: none;
+  color: var(--ink-4);
+}
+
+button.inst-del {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  color: var(--ink-4);
+}
+button.inst-del:hover:not(:disabled) {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  border-color: color-mix(in srgb, var(--red) 30%, transparent);
+}
+button.inst-del:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.inst-actions .inst-del { margin-left: 0; }
+
+.panel {
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: none;
+}
+.panel::before { display: none; }
+.panel-head { background: transparent; }
+
+.metric-track { height: 5px; border-radius: 999px; background: var(--sunken-2); }
+.metric-track > span { border-radius: 999px; background: var(--blue); box-shadow: none; }
+
+button.primary,
+button.ghost,
+button.danger,
+button.quiet {
+  box-shadow: none;
+  transition: background 0.14s var(--ease), border-color 0.14s var(--ease), color 0.14s var(--ease);
+}
+button.primary {
+  background: var(--blue);
+  border-color: var(--blue);
+  box-shadow: none;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+  transform: none;
+  box-shadow: none;
+}
+button.primary:active:not(:disabled) {
+  background: var(--blue-press);
+  border-color: var(--blue-press);
+  transform: none;
+  box-shadow: none;
+}
+button.primary:disabled {
+  background: var(--sunken-2);
+  border-color: var(--line-2);
+  color: var(--ink-4);
+  box-shadow: none;
+}
+button.ghost {
+  background: transparent;
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+button.ghost:hover:not(:disabled) {
+  background: var(--hover-2);
+  border-color: var(--line-strong);
+}
+button.ghost:active:not(:disabled) { transform: none; }
+button.danger { background: transparent; box-shadow: none; }
+button.quiet { background: transparent; box-shadow: none; }
+button:active:not(:disabled) { transform: none; }
+
+.icon-btn {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.icon-btn:hover {
+  background: var(--hover-2);
+  border-color: var(--line);
+}
+
+.tab { border-radius: 8px; }
+.tab.active {
+  background: var(--hover-2);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.seg {
+  position: relative;
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--sunken);
+  --seg-active-bg: color-mix(in srgb, var(--blue) 22%, transparent);
+}
+.seg button {
+  position: relative;
+  z-index: 1;
+  border-radius: 6px;
+}
+.seg button:active:not(:disabled) {
+  transform: none;
+}
+.seg-glider {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  z-index: 0;
+  border-radius: 6px;
+  background: var(--seg-active-bg);
+  pointer-events: none;
+  will-change: transform, width;
+}
+.seg-glider.is-ready {
+  transition: transform 0.18s var(--ease), width 0.18s var(--ease);
+}
+.seg:not(:has(.seg-glider)) button.active {
+  background: var(--seg-active-bg);
+}
+.seg button.active {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 控制台是一整块：工具栏与终端共用同一层深色，按钮统一 24px。 */
+.content.flush {
+  /* 终端页也按普通页的 content 留白放卡片，避免比概览/版本页贴顶。 */
+  padding: 26px 22px 36px;
+}
+.content.flush .console-wrap { margin: 0; }
+.console-wrap {
+  margin: 12px 16px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: var(--term);
+  overflow: hidden;
+  --hover-bg: color-mix(in srgb, var(--blue) 18%, transparent);
+  --hover-border: color-mix(in srgb, var(--blue) 55%, transparent);
+  --hover-ink: #f5f6fb;
+}
+.console-bar {
+  gap: 6px;
+  padding: 11px 12px;
+  background: #0e111a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--term-dim);
+}
+.console-bar .badge {
+  height: 22px;
+  padding: 0 8px;
+  background: rgba(61, 220, 151, 0.12);
+  border-color: rgba(61, 220, 151, 0.24);
+  color: #5ee0a4;
+  font-size: 10.5px;
+}
+.console-bar .badge .dot { width: 6px; height: 6px; background: #3ddc97; }
+.console-bar button,
+.console-bar button.primary,
+.console-bar button.ghost,
+.console-bar button.ghost.sm {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.console-bar button.primary { background: var(--blue); border-color: var(--blue); }
+.console-bar button.ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #c9cedd;
+}
+.console-bar button.ghost:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--hover-bg);
+  color: var(--hover-ink);
+}
+.console-bar button:disabled {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.07);
+  color: rgba(231, 233, 242, 0.32);
+}
+.console-bar .meta { color: var(--term-dim); font-size: 10.5px; }
+.console-wrap .banner.err {
+  margin: 8px 12px 0;
+  background: rgba(255, 92, 108, 0.1);
+  border-color: rgba(255, 92, 108, 0.28);
+  color: #ffb3ba;
+}
+.term-host,
+.log-view,
+pre.install-log { box-shadow: none; }
+.term-host {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 0;
+  background: transparent;
+}
+.log-view { border-radius: 12px; }
+
+.toast { box-shadow: 0 20px 50px -26px rgba(0, 0, 0, 0.8); }
+.modal { box-shadow: 0 36px 90px -28px #000; }
+.modal-head,
+.modal-foot { background: var(--modal); }
+
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input:not([type]),
+select,
+textarea {
+  background: var(--sunken);
+  box-shadow: none;
+}
+/* 激活页签只保留平涂底色，不再画全息渐变下划线 */
+.tab.active::after { display: none; }
+
+@media (max-width: 1100px) {
+  .content.flush { padding: 16px 20px 24px; }
+}
