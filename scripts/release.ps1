@@ -9,7 +9,7 @@
      不一致时 updater 会认为「没有新版本」，用户永远看不到更新。
   2. 签名构建：用 ~/.tauri/comfyfleet.key 签出安装器 ComfyFleet_<版本>_x64-setup.exe
      与对应的 .exe.sig，并组装 latest.json。
-  3. 上传到 ModelScope 仓库的 app/ 目录：
+  3. 上传到 ModelScope 仓库的 ComfyFleet/ 目录：
        latest.json
        ComfyFleet_<版本>_x64-setup.exe
 
@@ -33,7 +33,7 @@ param(
   [string]$Version,
   [string]$Notes = "",
   [string]$Repo = "yuanxinjie/AI-windows-whl",
-  [string]$RepoPath = "app",
+  [string]$RepoPath = "ComfyFleet",
   [switch]$SkipBuild,
   [switch]$Upload
 )

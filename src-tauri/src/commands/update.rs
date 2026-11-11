@@ -6,7 +6,7 @@
 //!    （`app_update_install` 只会被显式按钮触发，没有自动调用点）。
 //! 3. **签名校验交给 updater 插件**：公钥写死在 tauri.conf.json，私钥只在发布机/CI 上。
 //!
-//! 更新源默认是 ModelScope 模型仓库里的 `app/latest.json`：国内直连比 GitHub 快，
+//! 更新源默认是 ModelScope 模型仓库里的 `ComfyFleet/latest.json`：国内直连比 GitHub 快，
 //! 大文件会被 302 到带签名的 CDN 链接，updater 跟随重定向即可。
 
 use std::time::Instant;
@@ -109,7 +109,7 @@ fn running_instances(state: &AppState) -> Vec<String> {
 fn explain_check_error(err: &str) -> String {
     if err.contains("404") || err.contains("Not Found") {
         return format!(
-            "更新源里找不到 latest.json。检查 ModelScope 仓库是否已有 app/latest.json，\
+            "更新源里找不到 latest.json。检查 ModelScope 仓库是否已有 ComfyFleet/latest.json，\
              以及 tauri.conf.json 里的 updater.endpoints 是否指对：{err}"
         );
     }

@@ -63,7 +63,7 @@
 
 设置 → **更新**：只检查、不自动装。用户点「立即更新并重启」后才会下载安装包，装完自动重启。
 
-- **更新源**：ModelScope 模型仓库（默认 `yuanxinjie/AI-windows-whl` 的 `app/` 目录），
+- **更新源**：ModelScope 模型仓库（默认 `yuanxinjie/AI-windows-whl` 的 `ComfyFleet/` 目录），
   地址在 `src-tauri/tauri.conf.json` 的 `plugins.updater.endpoints`。国内直连比 GitHub Releases 快；
   大文件会 302 到带签名的 CDN，updater 跟随重定向即可。
 - **签名**：`tauri.conf.json` 里的 `plugins.updater.pubkey` 是公钥，私钥只在发布机上。
@@ -84,7 +84,7 @@
 
 脚本会：同步三处版本号 → 用 `~/.tauri/comfyfleet.key` 签名构建 → 生成
 `dist-update\latest.json` 与 `ComfyFleet_0.1.1_x64-setup.exe` → 打印上传清单。
-然后把这些文件传到 ModelScope 仓库的 `app/` 目录（网页上传，或 `-Upload` 走 SDK）。
+然后把这些文件传到 ModelScope 仓库的 `ComfyFleet/` 目录（网页上传，或 `-Upload` 走 SDK）。
 
 `latest.json` 就是「有没有更新」的唯一依据：
 
