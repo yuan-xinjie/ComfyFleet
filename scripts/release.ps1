@@ -107,18 +107,31 @@ $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = (Read-Text $pwFile).Trim()
 if (-not $SkipBuild) {
   # 直接调 tauri.js，不走 pnpm 的 .ps1 垫片：PS5 在 $ErrorActionPreference='Stop'
   # 下会把原生命令写给 stderr 的进度行当成 terminate error，直接中断脚本。
-  # Start-Process 把 stdout/stderr 落到文件，用 exit code 判成败，最稳。
+  # 也不用 Start-Process -Wait：tauri 会拉起 esbuild / cargo / rustc 等孙进程，
+  # 孙进程继承了重定向管道后 -Wait 永远等不到退出（实测会卡死在构建结束处）。
+  # 直接 & 调用 + 文件重定向，靠 $LASTEXITCODE 判成败。
   $node = (Get-Command node -ErrorAction Stop).Source
   $cli = Join-Path $root 'node_modules\@tauri-apps\cli\tauri.js'
   if (-not (Test-Path $cli)) { throw "找不到 tauri CLI：$cli（先 pnpm install）" }
-  $buildOut = Join-Path $env:TEMP 'comfyfleet-tauri-build.out.log'
-  $buildErr = Join-Path $env:TEMP 'comfyfleet-tauri-build.err.log'
-  $proc = Start-Process -FilePath $node -ArgumentList @($cli, 'build') `
-    -WorkingDirectory $root -Wait -PassThru -NoNewWindow `
-    -RedirectStandardOutput $buildOut -RedirectStandardError $buildErr
-  if ($proc.ExitCode -ne 0) {
-    Get-Content $buildErr -Tail 40 -ErrorAction SilentlyContinue | Write-Host
-    throw "tauri build 失败（exit $($proc.ExitCode)），完整日志：$buildErr"
+  $buildLog = Join-Path $env:TEMP 'comfyfleet-tauri-build.log'
+  # cargo 一般装在 %USERPROFILE%\.cargo\bin，但非交互 shell（双击脚本、从服务或
+  # 计划任务调用）的 PATH 里常常没有它，这里补一下，免得到构建中途才报 program not found。
+  if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+    if (Test-Path (Join-Path $cargoBin 'cargo.exe')) {
+      $env:Path = "$cargoBin;$env:Path"
+    } else {
+      throw "找不到 cargo：请安装 Rust，并确认 %USERPROFILE%\.cargo\bin 在 PATH 里"
+    }
+  }
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  & $node $cli build *> $buildLog
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = $prevEap
+  if ($code -ne 0) {
+    Get-Content $buildLog -Tail 40 -ErrorAction SilentlyContinue | Write-Host
+    throw "tauri build 失败（exit $code），完整日志：$buildLog"
   }
 }
 

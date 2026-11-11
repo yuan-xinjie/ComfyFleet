@@ -1,6 +1,6 @@
 [package]
 name = "comfyfleet"
-version = "0.1.0"
+version = "0.1.1"
 description = "ComfyFleet：ComfyUI 多实例管理台"
 authors = ["ComfyFleet contributors"]
 edition = "2021"
