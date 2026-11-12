@@ -11,7 +11,7 @@ dist-update/
 .env
 .env.local
 
-# 打包用的大二进制：由 scripts/fetch-mingit.ps1 / fetch-uv.ps1 下载，不进 git 历史
+# 早期安装包自带的大二进制（现已改为运行时按需下载，本机残留也不进 git）
 src-tauri/resources/mingit.zip
 src-tauri/resources/uv.exe
 
@@ -35,3 +35,9 @@ sd/
 *.orig
 *.rej
 audit-fix-backup-*.zip
+
+# 签名私钥等敏感文件（正常放在 %USERPROFILE%\.tauri，别误提交）
+*.key
+*.key.password
+*.pem
+*.pfx
