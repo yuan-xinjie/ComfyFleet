@@ -1018,6 +1018,10 @@ fn mark_env_broken(inst: &InstanceConfig, on: &Channel<VersionEvent>) {
     let mut cfg = inst.clone();
     if !matches!(cfg.state, InstanceState::Uninitialized) {
         cfg.state = InstanceState::Error;
+        cfg.last_error = Some(
+            "版本已切换，但依赖安装没有完成；环境可能不完整。重新切换版本或回滚快照。"
+                .to_string(),
+        );
     }
     let _ = crate::commands::instance::save_instance(&cfg);
     let _ = on.send(VersionEvent::warn(
@@ -1334,7 +1338,7 @@ fn version_switch_inner(
                 if kind.channel() == "dev" {
                     "开发版"
                 } else {
-                    "稳定特"
+                    "稳定版"
                 }
             ),
         ))
@@ -1375,6 +1379,7 @@ fn version_switch_inner(
     );
 
     inst.state = InstanceState::Ready;
+    inst.last_error = None;
     crate::commands::instance::save_instance(&inst)?;
     Ok(after)
 }
@@ -1550,6 +1555,7 @@ fn version_update_inner(
         }
     };
     inst.state = InstanceState::Ready;
+    inst.last_error = None;
     crate::commands::instance::save_instance(&inst)?;
     crate::activity::record(
         &instance_id,

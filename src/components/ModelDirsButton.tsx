@@ -1,3 +1,4 @@
+import Button from './Button'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errText } from '../lib/api'
@@ -164,7 +165,7 @@ export default function ModelDirsButton({ inst, notify }: Props) {
 
   return (
     <>
-      <button
+      <Button
         ref={btnRef}
         type="button"
         className="dir-btn"
@@ -189,7 +190,7 @@ export default function ModelDirsButton({ inst, notify }: Props) {
       >
         <Icon name="box" size={14} />
         模型目录
-      </button>
+      </Button>
 
       {open &&
         pos &&
@@ -205,7 +206,7 @@ export default function ModelDirsButton({ inst, notify }: Props) {
           >
             <div className="model-dir-head">选择要打开的模型目录</div>
             {dirs?.map((dir) => (
-              <button
+              <Button
                 key={`${dir.path}-${dir.source}`}
                 type="button"
                 role="menuitem"
@@ -222,7 +223,7 @@ export default function ModelDirsButton({ inst, notify }: Props) {
                 </span>
                 <span className="model-dir-path mono">{dir.path}</span>
                 {dir.type && <span className="model-dir-type">{modelTypeLabel(dir.type)}</span>}
-              </button>
+              </Button>
             ))}
           </div>,
           document.body,

@@ -45,6 +45,7 @@ import type {
   LiveEnv,
   ModelCopyResult,
   ModelListing,
+  ModelOpResult,
   NodeInfo,
   NodeUpdate,
   PtyEvent,
@@ -161,6 +162,39 @@ export const api = {
   /** 把拖进来的文件/目录复制到当前模型目录；已存在的同名文件跳过 */
   modelsCopy: (instanceId: string, root: string, rel: string, sources: string[]) =>
     invoke<ModelCopyResult>('models_copy', { instanceId, root, rel, sources }),
+  /** 模型目录内重命名一个文件或文件夹 */
+  modelsRename: (
+    instanceId: string,
+    root: string,
+    rel: string,
+    name: string,
+    newName: string,
+  ) => invoke<ModelOpResult>('models_rename', { instanceId, root, rel, name, newName }),
+  /** 在当前模型目录新建文件夹 */
+  modelsMkdir: (instanceId: string, root: string, rel: string, name: string) =>
+    invoke<ModelOpResult>('models_mkdir', { instanceId, root, rel, name }),
+  /** 永久删除当前目录里的文件/文件夹 */
+  modelsDelete: (instanceId: string, root: string, rel: string, names: string[]) =>
+    invoke<ModelOpResult>('models_delete', { instanceId, root, rel, names }),
+  /** 在模型目录之间复制或剪切粘贴；目标同名项跳过 */
+  modelsPaste: (
+    instanceId: string,
+    sourceRoot: string,
+    sourceRel: string,
+    names: string[],
+    targetRoot: string,
+    targetRel: string,
+    cut: boolean,
+  ) =>
+    invoke<ModelOpResult>('models_paste', {
+      instanceId,
+      sourceRoot,
+      sourceRel,
+      names,
+      targetRoot,
+      targetRel,
+      cut,
+    }),
   /** 用系统浏览器打开 http(s) 链接（官方文档之类） */
   openUrl: (url: string) => invoke<void>('open_url', { url }),
   instanceDelete: (id: string, purge: boolean) => invoke<void>('instance_delete', { id, purge }),

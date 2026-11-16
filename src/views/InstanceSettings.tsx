@@ -1,11 +1,15 @@
+import { TextInput, TextArea, Checkbox, DirectoryInput } from '../components/Form'
+import Button from '../components/Button'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Select from '../components/Select'
 import Icon from '../components/Icon'
+import Modal from '../components/Modal'
 import Segmented from '../components/Segmented'
 import OperationDialog, {
   type OperationLine,
   type OperationTab,
 } from '../components/OperationDialog'
+import { speedFromLog, useBackgroundTask } from '../components/BackgroundTasks'
 import { api, errText } from '../lib/api'
 import type {
   EngineOption,
@@ -117,6 +121,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
     cancelled?: boolean
   } | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [switchOpen, setSwitchOpen] = useState(false)
   const [savedConfig, setSavedConfig] = useState<InstanceConfig | null>(null)
   const [opEvents, setOpEvents] = useState<OperationLine[]>([])
   const [opPhase, setOpPhase] = useState('准备中')
@@ -308,6 +313,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
     setBusy(true)
     setCancelling(false)
     setSavedConfig(updated)
+    setSwitchOpen(false)
     setSwitchLog({ title: '准备更新环境…', logs: [], running: true })
     setOpEvents([])
     setOpPhase('准备中')
@@ -476,6 +482,30 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
     }
   }
 
+  const switchState = switchLog?.running
+    ? 'running'
+    : switchLog?.failed
+      ? 'failed'
+      : switchLog?.cancelled
+        ? 'cancelled'
+        : 'ok'
+
+  useBackgroundTask(
+    switchLog
+      ? {
+          id: `env-settings-${inst.id}`,
+          title: switchLog.title || '环境更新',
+          phase: opPhase,
+          state: switchState,
+          percent: opPercent,
+          log: opEvents[opEvents.length - 1]?.message,
+          speed: speedFromLog(opEvents[opEvents.length - 1]?.message),
+          kind: 'install',
+          onOpen: () => setSwitchOpen(true),
+        }
+      : null,
+  )
+
   return (
     <div className="stack">
       <div className="panel settings-clean">
@@ -491,7 +521,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
               <div className="field-label">
                 <label>实例名称</label>
               </div>
-              <input aria-label="实例名称" value={name} onChange={(e) => setName(e.target.value)} />
+              <TextInput aria-label="实例名称" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
 
             <div className="field">
@@ -499,14 +529,14 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 <label>实例目录</label>
               </div>
               <div className="inline-input wide">
-                <input
+                <TextInput
                   className="mono"
                   aria-label="实例目录"
                   value={inst.rootDir}
                   readOnly
                   title={inst.rootDir}
                 />
-                <button
+                <Button
                   type="button"
                   className="ghost sm"
                   onClick={() => void openRelocate()}
@@ -526,7 +556,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                   }
                 >
                   重新定位
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -645,32 +675,25 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 <div className="field-label">
                   <label>环境路径</label>
                 </div>
-                <div className="inline-input">
-                  <input
-                    className="mono"
-                    style={{ flex: 1, width: 'auto' }}
-                    aria-label="已有 Python 环境路径"
-                    aria-invalid={missingEnvPath}
-                    value={pyPath}
-                    placeholder="必填，例如 D:\ComfyUI_windows_portable\python_embeded"
-                    onChange={(e) => {
-                      setPyPath(e.target.value)
-                      setProbe(null)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="ghost sm"
-                    title="选择已有环境文件夹"
-                    onClick={() => void chooseExistingFolder()}
-                  >
-                    <Icon name="folder" size={13} />
-                    选择
-                  </button>
-                  <button type="button" className="ghost sm" disabled={probing} onClick={() => void detect()}>
-                    {probing ? '检测中…' : '检测'}
-                  </button>
-                </div>
+                <DirectoryInput
+                  className="mono"
+                  style={{ flex: 1, width: 'auto' }}
+                  aria-label="已有 Python 环境路径"
+                  aria-invalid={missingEnvPath}
+                  value={pyPath}
+                  placeholder="必填，例如 D:\ComfyUI_windows_portable\python_embeded"
+                  onChange={(e) => {
+                    setPyPath(e.target.value)
+                    setProbe(null)
+                  }}
+                  onPick={() => void chooseExistingFolder()}
+                  pickTitle="选择已有环境文件夹"
+                  actions={
+                    <Button type="button" className="ghost sm" disabled={probing} onClick={() => void detect()}>
+                      {probing ? '检测中…' : '检测'}
+                    </Button>
+                  }
+                />
                 {probe && (
                   <span className="hint is-status" style={{ color: 'var(--green)' }}>
                     找到 Python {probe.version || '（版本未知）'}
@@ -683,7 +706,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
           <section>
             <h3>环境变量</h3>
             <div className="field">
-              <textarea
+              <TextArea
                 rows={3}
                 className="mono"
                 aria-label="环境变量" value={envText}
@@ -696,7 +719,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
           <section>
             <h3>运行</h3>
             <label className="check-row">
-              <input
+              <Checkbox
                 type="checkbox"
                 checked={autoRestart}
                 onChange={(e) => setAutoRestart(e.target.checked)}
@@ -710,7 +733,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
             <div className="grid-2">
               <div className="field">
                 <label>PyPI 索引</label>
-                <input
+                <TextInput
                   className="mono"
                   aria-label="PyPI 索引" value={pypi}
                   placeholder="继承全局"
@@ -719,7 +742,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
               </div>
               <div className="field">
                 <label>Git 加速前缀</label>
-                <input
+                <TextInput
                   className="mono"
                   aria-label="Git 加速前缀" value={git}
                   placeholder="继承全局"
@@ -728,7 +751,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
               </div>
               <div className="field">
                 <label>HuggingFace 端点</label>
-                <input
+                <TextInput
                   className="mono"
                   aria-label="HuggingFace 端点" value={hf}
                   placeholder="继承全局"
@@ -754,42 +777,31 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
       </div>
 
       {relocateOpen && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !relocateBusy) setRelocateOpen(false)
-          }}
+        <Modal
+          className="confirm"
+          labelledBy="relocate-title"
+          dismissible={!relocateBusy}
+          onClose={() => setRelocateOpen(false)}
         >
-          <div className="modal confirm" role="dialog" aria-modal="true" aria-labelledby="relocate-title">
             <div className="modal-head">
               <h2 id="relocate-title">重新定位实例目录？</h2>
             </div>
             <div className="modal-body">
-              <p className="hint">
-                只修改实例登记和配置里的路径，<strong>不会移动或复制磁盘文件</strong>。请先把目录搬到新位置。
-              </p>
               <div className="field">
                 <label>新实例目录</label>
-                <div className="inline-input wide">
-                  <input
-                    className="mono"
-                    aria-label="新实例目录"
-                    value={relocatePath}
-                    onChange={(e) => {
-                      setRelocatePath(e.target.value)
-                      setRelocateError(null)
-                    }}
-                    placeholder="D:\ComfyUI"
-                  />
-                  <button
-                    type="button"
-                    className="ghost sm"
-                    onClick={() => void chooseRelocateFolder()}
-                    disabled={relocateBusy}
-                  >
-                    选择
-                  </button>
-                </div>
+                <DirectoryInput
+                  wrapperClassName="inline-input wide"
+                  className="mono"
+                  aria-label="新实例目录"
+                  value={relocatePath}
+                  onChange={(e) => {
+                    setRelocatePath(e.target.value)
+                    setRelocateError(null)
+                  }}
+                  placeholder="D:\ComfyUI"
+                  onPick={() => void chooseRelocateFolder()}
+                  pickDisabled={relocateBusy}
+                />
               </div>
               <div className="banner warn">
                 <span className="mark">
@@ -810,47 +822,50 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
             </div>
             <div className="modal-foot">
               <div className="spacer" />
-              <button
+              <Button
                 className="ghost"
                 onClick={() => setRelocateOpen(false)}
                 disabled={relocateBusy}
               >
                 取消
-              </button>
-              <button className="primary" onClick={() => void doRelocate()} disabled={relocateBusy}>
+              </Button>
+              <Button className="primary" onClick={() => void doRelocate()} disabled={relocateBusy}>
                 {relocateBusy ? '重定位中…' : '确认重定位'}
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {needsConfirm && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setNeedsConfirm(false)
-          }}
+        <Modal
+          className="confirm"
+          labelledBy="env-confirm-title"
+          dismissible={!busy}
+          onClose={() => setNeedsConfirm(false)}
         >
-          <div className="modal confirm" role="dialog" aria-modal="true" aria-labelledby="env-confirm-title">
             <div className="modal-head">
               <h2 id="env-confirm-title">{pythonChanged ? '确认更换 Python 版本？' : '确认更换 CUDA / torch？'}</h2>
             </div>
             <div className="modal-body">
-              <p className="hint">
-                {pyMode === 'existing'
-                  ? '这个实例用的是已有环境：只记录配置，不动 venv。'
-                  : pythonChanged
-                    ? 'Python 版本变了：旧 venv 会备份成 .venv.bak-时间戳，保存后自动建新环境并弹出安装控制台。'
-                    : '只换 CUDA / torch 版本：现有 venv 会保留，不会新建环境；保存后自动替换 torch 全套并弹出安装控制台。'}
-              </p>
+              <div className="banner warn">
+                <span className="mark">
+                  <Icon name="alert" size={13} />
+                </span>
+                <div>
+                  {pyMode === 'existing'
+                    ? '这个实例用的是已有环境：只记录配置，不动 venv。'
+                    : pythonChanged
+                      ? 'Python 版本变了：旧 venv 会备份成 .venv.bak-时间戳，保存后自动建新环境并弹出安装控制台。'
+                      : '只换 CUDA / torch 版本：现有 venv 会保留，不会新建环境；保存后自动替换 torch 全套并弹出安装控制台。'}
+                </div>
+              </div>
             </div>
             <div className="modal-foot">
               <div className="spacer" />
-              <button className="ghost" onClick={() => setNeedsConfirm(false)}>
+              <Button className="ghost" onClick={() => setNeedsConfirm(false)}>
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 className="primary"
                 disabled={busy}
                 onClick={() => {
@@ -859,25 +874,16 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 }}
               >
                 确认并保存
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
-      {switchLog && (
+      {switchLog && switchOpen && (
         <OperationDialog
           title={switchLog.title || '环境更新'}
           target={inst.name}
-          state={
-            switchLog.running
-              ? 'running'
-              : switchLog.failed
-                ? 'failed'
-                : switchLog.cancelled
-                  ? 'cancelled'
-                  : 'ok'
-          }
+          state={switchState}
           phase={opPhase}
           percent={opPercent}
           facts={[
@@ -889,25 +895,30 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
           tab={opTab}
           onTab={setOpTab}
           detailLabel="安装详情"
-          closeLabel={switchLog.running ? '更新中…' : '关闭'}
-          allowHideOnRun={false}
-          onClose={finishSwitch}
+          closeLabel={switchLog.running ? undefined : '关闭'}
+          onClose={() => {
+            if (switchLog.running) {
+              setSwitchOpen(false)
+              return
+            }
+            finishSwitch()
+          }}
           footer={
             <>
-              <button
+              <Button
                 className="ghost"
                 onClick={() => void copySwitchLog()}
                 disabled={switchLog.logs.length === 0}
               >
                 复制日志
-              </button>
+              </Button>
               {switchLog.failed && !switchLog.running && (
-                <button className="ghost" onClick={() => void runInstall(savedConfig ?? inst)}>
+                <Button className="ghost" onClick={() => void runInstall(savedConfig ?? inst)}>
                   重试
-                </button>
+                </Button>
               )}
               {switchLog.running && (
-                <button
+                <Button
                   className="ghost stop"
                   onClick={() => void cancelInstall()}
                   disabled={cancelling}
@@ -915,7 +926,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 >
                   <Icon name="stop" size={13} />
                   {cancelling ? '正在取消…' : '取消安装'}
-                </button>
+                </Button>
               )}
             </>
           }

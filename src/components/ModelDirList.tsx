@@ -1,3 +1,5 @@
+import { TextInput } from './Form'
+import Button from './Button'
 import { api } from '../lib/api'
 import { MODEL_TYPES, emptyModelDir, modelTypeLabel } from '../lib/storage'
 import type { ModelDir } from '../types'
@@ -52,7 +54,7 @@ export default function ModelDirList({
       )}
       {dirs.map((dir, index) => (
         <div className="dir-row" key={index}>
-          <input
+          <TextInput
             className="mono dir-path"
             aria-label="模型目录路径"
             placeholder="D:\\models 或 D:\\sd\\checkpoints"
@@ -76,7 +78,7 @@ export default function ModelDirList({
             ]}
           />
           {showDefault && (
-            <button
+            <Button
               type="button"
               className={`ghost sm dir-default${dir.isDefault ? ' on' : ''}`}
               aria-label={dir.isDefault ? '当前下载落点' : '设为下载落点'}
@@ -86,9 +88,9 @@ export default function ModelDirList({
             >
               <Icon name={dir.isDefault ? 'check' : 'download'} size={13} />
               {dir.isDefault ? '下载落点' : '设为下载落点'}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             type="button"
             className="ghost sm icon-btn"
             aria-label="打开目录"
@@ -97,8 +99,8 @@ export default function ModelDirList({
             onClick={() => open(dir.path)}
           >
             <Icon name="folder" size={13} />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="ghost sm icon-btn danger"
             aria-label="移除目录"
@@ -107,14 +109,14 @@ export default function ModelDirList({
             onClick={() => remove(index)}
           >
             <Icon name="trash" size={13} />
-          </button>
+          </Button>
         </div>
       ))}
       <div className="dir-actions">
-        <button type="button" className="ghost sm" onClick={add} disabled={disabled}>
+        <Button type="button" className="ghost sm" onClick={add} disabled={disabled}>
           <Icon name="plus" size={13} />
           添加目录
-        </button>
+        </Button>
       </div>
     </div>
   )

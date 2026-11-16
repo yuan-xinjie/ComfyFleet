@@ -1,3 +1,5 @@
+import { DirectoryInput, TextInput } from '../components/Form'
+import Button from '../components/Button'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import coreLogo from '../assets/core-logo.svg'
 import { api, errText } from '../lib/api'
@@ -17,12 +19,13 @@ import type {
 import { stateText, stateTone } from '../lib/state'
 import { comfyPath } from '../lib/paths'
 import type { RunProgress } from '../lib/runProgress'
-import { deriveLogTask } from '../lib/runProgress'
+import { deriveLogTask, stageLabel } from '../lib/runProgress'
 import { useInstanceLogStream } from '../lib/useInstanceLogStream'
 import Icon from '../components/Icon'
 import ModelDirsButton from '../components/ModelDirsButton'
 import Select from '../components/Select'
 import EnvSummary from '../components/EnvSummary'
+import ErrorBadge from '../components/ErrorBadge'
 
 
 interface Props {
@@ -103,14 +106,7 @@ function address(inst: InstanceConfig) {
 }
 
 
-function taskStageText(stage: string): string {
-  if (stage === '加载模型') return '正在加载模型'
-  if (stage === '采样') return '正在采样'
-  if (stage === '解码') return '正在解码'
-  if (stage === '编码') return '正在编码'
-  if (stage === '准备') return '正在准备'
-  return '正在执行'
-}
+const taskStageText = stageLabel
 
 /**
  * 卡片中间的任务区：日志里有 tqdm 就按真实步数显示，只有队列信息时给不确定进度；
@@ -535,6 +531,15 @@ export default function Home({
     }
   }
 
+  const chooseCreateFolder = async () => {
+    try {
+      const path = await api.pickFolder()
+      if (path) setForm((f) => ({ ...f, rootDir: path }))
+    } catch (e) {
+      notify('err', errText(e))
+    }
+  }
+
   const detectImport = async () => {
     if (!importPath.trim()) return notify('err', '先填已有安装目录，再检测环境')
     setEnvBusy(true)
@@ -594,18 +599,18 @@ export default function Home({
               )}
             </div>
             <div className="row">
-              <button className="ghost" onClick={openRemoteModal}>
+              <Button className="ghost" onClick={openRemoteModal}>
                 <Icon name="globe" size={14} />
                 添加云端
-              </button>
-              <button className="ghost" onClick={() => setModal('import')}>
+              </Button>
+              <Button className="ghost" onClick={() => setModal('import')}>
                 <Icon name="download" size={14} />
                 导入已有安装
-              </button>
-              <button className="primary" onClick={() => setModal('create')}>
+              </Button>
+              <Button className="primary" onClick={() => setModal('create')}>
                 <Icon name="plus" size={15} />
                 新建实例
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -663,7 +668,7 @@ export default function Home({
                         </span>
                       </div>
                       <div className="inst-actions">
-                        <button
+                        <Button
                           type="button"
                           className="inst-run start"
                           onClick={() => void openRemote(inst)}
@@ -672,12 +677,12 @@ export default function Home({
                         >
                           <Icon name="globe" size={13} />
                           打开
-                        </button>
-                        <button type="button" className="ghost sm" onClick={() => editRemote(inst)}>
+                        </Button>
+                        <Button type="button" className="ghost sm" onClick={() => editRemote(inst)}>
                           编辑
-                        </button>
+                        </Button>
                         <span className="spacer" />
-                        <button
+                        <Button
                           type="button"
                           className="icon-btn inst-del"
                           onClick={() => setRemoveTarget(inst)}
@@ -685,7 +690,7 @@ export default function Home({
                           aria-label={`移除「${inst.name}」`}
                         >
                           <Icon name="trash" size={13} />
-                        </button>
+                        </Button>
                       </div>
                     </article>
                   )
@@ -714,10 +719,14 @@ export default function Home({
                   >
                     <div className="inst-top">
                       <span className="inst-name">{inst.name}</span>
-                      <span className={`badge ${tone}`}>
-                        <span className="dot" />
-                        {stateText(inst.state)}
-                      </span>
+                      {inst.state === 'error' ? (
+                        <ErrorBadge message={inst.lastError} />
+                      ) : (
+                        <span className={`badge ${tone}`}>
+                          <span className="dot" />
+                          {stateText(inst.state)}
+                        </span>
+                      )}
                     </div>
 
                     <div className="inst-meta">
@@ -729,7 +738,7 @@ export default function Home({
 
                     <div className="inst-dirs" role="group" aria-label={`${inst.name} 的快捷目录`}>
                       <ModelDirsButton inst={inst} notify={notify} />
-                      <button
+                      <Button
                         type="button"
                         className="dir-btn"
                         onClick={() => void openDir(inst, 'custom_nodes', '节点目录')}
@@ -737,8 +746,8 @@ export default function Home({
                       >
                         <Icon name="nodes" size={14} />
                         节点目录
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         className="dir-btn"
                         onClick={() => void openOutput(inst)}
@@ -746,7 +755,7 @@ export default function Home({
                       >
                         <Icon name="folder" size={14} />
                         输出目录
-                      </button>
+                      </Button>
                     </div>
 
                     <div className="inst-mid">
@@ -754,7 +763,7 @@ export default function Home({
                     </div>
 
                     <div className="inst-actions">
-                      <button
+                      <Button
                         type="button"
                         className={`inst-run ${run.kind}`}
                         onClick={() => (run.kind === 'stop' ? void stopInstance(inst) : void startInstance(inst))}
@@ -764,8 +773,8 @@ export default function Home({
                       >
                         <Icon name={run.kind === 'stop' ? 'stop' : 'play'} size={13} />
                         {run.label}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         className="ghost sm"
                         onClick={() => onSelect(inst.id)}
@@ -773,9 +782,9 @@ export default function Home({
                       >
                         管理
                         <Icon name="back" size={12} style={{ transform: 'rotate(180deg)' }} />
-                      </button>
+                      </Button>
                       <span className="spacer" />
-                      <button
+                      <Button
                         type="button"
                         className="icon-btn inst-del"
                         onClick={() => setRemoveTarget(inst)}
@@ -794,7 +803,7 @@ export default function Home({
                         aria-label={`移除「${inst.name}」`}
                       >
                         <Icon name="trash" size={13} />
-                      </button>
+                      </Button>
                     </div>
                   </article>
                 )
@@ -827,9 +836,9 @@ export default function Home({
                 {modal === 'remote' ? '只存地址' : modal === 'create' ? '从零装' : '只登记'}
               </span>
               <div className="spacer" />
-              <button className="icon-btn" onClick={() => setModal(null)} title="关闭" aria-label="关闭">
+              <Button className="icon-btn" onClick={() => setModal(null)} title="关闭" aria-label="关闭">
                 <Icon name="close" size={16} />
-              </button>
+              </Button>
             </div>
 
             {modal === 'remote' ? (
@@ -837,7 +846,7 @@ export default function Home({
                 <div className="modal-body">
                   <label className="field">
                     <span>实例名称</span>
-                    <input
+                    <TextInput
                       autoFocus
                       aria-label="云端实例名称"
                       value={remoteForm.name}
@@ -848,7 +857,7 @@ export default function Home({
                   <div className="field-row">
                     <label className="field">
                       <span>域名 / IP</span>
-                      <input
+                      <TextInput
                         aria-label="云端域名或 IP"
                         value={remoteForm.host}
                         placeholder="comfy.example.com"
@@ -858,7 +867,7 @@ export default function Home({
                     </label>
                     <label className="field">
                       <span>端口</span>
-                      <input
+                      <TextInput
                         aria-label="云端端口"
                         value={remoteForm.port || ''}
                         inputMode="numeric"
@@ -901,11 +910,11 @@ export default function Home({
                 </div>
                 <div className="modal-foot">
                   <div className="spacer" />
-                  <button className="ghost" onClick={() => setModal(null)}>
+                  <Button className="ghost" onClick={() => setModal(null)}>
                     取消
-                  </button>
+                  </Button>
                   {remoteForm.id && (
-                    <button
+                    <Button
                       className="ghost"
                       onClick={() => {
                         const target = instances.find((i) => i.id === remoteForm.id) ?? null
@@ -914,11 +923,11 @@ export default function Home({
                       }}
                     >
                       移除
-                    </button>
+                    </Button>
                   )}
-                  <button className="primary" onClick={() => void saveRemote()} disabled={busy}>
+                  <Button className="primary" onClick={() => void saveRemote()} disabled={busy}>
                     {busy ? '保存中…' : remoteForm.id ? '保存修改' : '添加云端'}
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : modal === 'create' ? (
@@ -927,7 +936,7 @@ export default function Home({
                   <div className="field-row">
                     <label className="field">
                       <span>实例名称</span>
-                      <input
+                      <TextInput
                         autoFocus
                         aria-label="实例名称"
                         value={form.name}
@@ -937,7 +946,7 @@ export default function Home({
                     </label>
                     <label className="field">
                       <span>端口</span>
-                      <input
+                      <TextInput
                         aria-label="端口"
                         value={form.port}
                         inputMode="numeric"
@@ -947,16 +956,18 @@ export default function Home({
                       />
                     </label>
                   </div>
-                  <label className="field">
+                  <div className="field">
                     <span>实例目录</span>
-                    <input
+                    <DirectoryInput
+                      wrapperClassName="inline-input wide"
                       aria-label="实例目录"
                       value={form.rootDir}
                       placeholder="D:\ComfyUI"
                       onChange={(e) => setForm((f) => ({ ...f, rootDir: e.target.value }))}
+                      onPick={() => void chooseCreateFolder()}
                     />
                     <span className="hint">本体、venv、日志都放这里；建议非系统盘。</span>
-                  </label>
+                  </div>
                   <div className="field-row">
                     <div className="field">
                       <span>CUDA 版本</span>
@@ -1020,17 +1031,17 @@ export default function Home({
                 </div>
                 <div className="modal-foot">
                   <div className="spacer" />
-                  <button className="ghost" onClick={() => setModal(null)}>
+                  <Button className="ghost" onClick={() => setModal(null)}>
                     取消
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     className="primary"
                     onClick={() => void submit()}
                     disabled={busy || !form.name.trim()}
                     title={!form.name.trim() ? '先填实例名称' : undefined}
                   >
                     {busy ? '登记中…' : '创建'}
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (
@@ -1039,57 +1050,39 @@ export default function Home({
                   <p className="hint">选已有 ComfyUI 的<strong>根目录</strong>；只登记，不改文件。</p>
                   <div className="field">
                     <span>已有安装目录</span>
-                    <div className="inline-input">
-                      <input
-                        autoFocus
-                        style={{ flex: 1, width: 'auto' }}
-                        aria-label="已有安装目录"
-                        value={importPath}
-                        placeholder="D:\ComfyUI_windows_portable\ComfyUI"
-                        onChange={(e) => setImportPath(e.target.value)}
-                      />
-                      <button
-                        type="button"
-                        className="ghost sm"
-                        onClick={() => void chooseImportFolder('root')}
-                      >
-                        <Icon name="folder" size={13} />
-                        选择
-                      </button>
-                    </div>
+                    <DirectoryInput
+                      autoFocus
+                      style={{ flex: 1, width: 'auto' }}
+                      aria-label="已有安装目录"
+                      value={importPath}
+                      placeholder="D:\ComfyUI_windows_portable\ComfyUI"
+                      onChange={(e) => setImportPath(e.target.value)}
+                      onPick={() => void chooseImportFolder('root')}
+                    />
                     <span className="hint">
                       目录里要有 <code>ComfyUI\main.py</code>。
                     </span>
                   </div>
                   <div className="field">
                     <span>Python 环境（可留空）</span>
-                    <div className="inline-input">
-                      <input
-                        style={{ flex: 1, width: 'auto' }}
-                        aria-label="Python 环境路径"
-                        value={importPython}
-                        placeholder="D:\ComfyUI\venv 或 ...\python_embeded\python.exe"
-                        onChange={(e) => setImportPython(e.target.value)}
-                      />
-                      <button
-                        type="button"
-                        className="ghost sm"
-                        onClick={() => void chooseImportFolder('python')}
-                      >
-                        <Icon name="folder" size={13} />
-                        选择
-                      </button>
-                    </div>
+                    <DirectoryInput
+                      style={{ flex: 1, width: 'auto' }}
+                      aria-label="Python 环境路径"
+                      value={importPython}
+                      placeholder="D:\ComfyUI\venv 或 ...\python_embeded\python.exe"
+                      onChange={(e) => setImportPython(e.target.value)}
+                      onPick={() => void chooseImportFolder('python')}
+                    />
                     <span className="hint">留空会自动查找 venv / python_embeded。</span>
                   </div>
                   <div className="row import-detect">
-                    <button
+                    <Button
                       className="ghost sm"
                       onClick={() => void detectImport()}
                       disabled={envBusy || !importPath.trim()}
                     >
                       {envBusy ? '检测中…' : '检测环境'}
-                    </button>
+                    </Button>
 
                   </div>
                   {importEnv && <EnvSummary env={importEnv} />}
@@ -1163,7 +1156,7 @@ export default function Home({
                   )}
                   <label className="field">
                     <span>显示名称（可留空）</span>
-                    <input
+                    <TextInput
                       aria-label="显示名称"
                       value={importName}
                       placeholder={
@@ -1177,12 +1170,12 @@ export default function Home({
                 </div>
                 <div className="modal-foot">
                   <div className="spacer" />
-                  <button className="ghost" onClick={() => setModal(null)}>
+                  <Button className="ghost" onClick={() => setModal(null)}>
                     取消
-                  </button>
-                  <button className="primary" onClick={() => void doImport()} disabled={importBusy}>
+                  </Button>
+                  <Button className="primary" onClick={() => void doImport()} disabled={importBusy}>
                     {importBusy ? '识别中…' : '导入'}
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
@@ -1212,13 +1205,13 @@ export default function Home({
             </div>
             <div className="modal-foot">
               <div className="spacer" />
-              <button className="ghost" onClick={() => setRemoveTarget(null)}>
+              <Button className="ghost" onClick={() => setRemoveTarget(null)}>
                 取消
-              </button>
-              <button className="danger solid" onClick={() => void removeNow()} disabled={busy}>
+              </Button>
+              <Button className="danger solid" onClick={() => void removeNow()} disabled={busy}>
                 <Icon name="trash" size={14} />
                 {busy ? '移除中…' : '确认移除'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

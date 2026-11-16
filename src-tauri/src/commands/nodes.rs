@@ -498,15 +498,9 @@ pub async fn nodes_update(
         } else {
             vec!["pull", "--progress", "--ff-only"]
         };
-        let out = proc::run_stream(
-            &git,
-            &args,
-            Some(&node),
-            &env,
-            &mut |line| {
-                let _ = on_event.send(VersionEvent::console(line));
-            },
-        )?;
+        let out = proc::run_stream(&git, &args, Some(&node), &env, &mut |line| {
+            let _ = on_event.send(VersionEvent::console(line));
+        })?;
         if !out.ok() {
             let _ = on_event.send(VersionEvent::failed(
                 "pull",

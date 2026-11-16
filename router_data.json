@@ -1,0 +1,55 @@
+{
+ "loaderData": {
+  "video_layout": null,
+  "video_(id)/page": {
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+   "isSpider": false,
+   "webId": "7708603366423709225",
+   "query": {},
+   "renderInSSR": 1,
+   "lastPath": "7699068026045496297",
+   "appName": "safari",
+   "host": "www.iesdouyin.com",
+   "isNotSupportWebp": false,
+   "commonContext": {
+    "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+    "isSpider": false,
+    "webId": "7708603366423709225",
+    "query": {},
+    "renderInSSR": 1,
+    "lastPath": "7699068026045496297",
+    "appName": "safari",
+    "host": "www.iesdouyin.com",
+    "isNotSupportWebp": false
+   },
+   "isAiDouyinOpt": "",
+   "itemId": "7699068026045496297",
+   "isVideoOptimize": true,
+   "openDirectGroup": "4",
+   "isVideoStyleOptimize": true,
+   "isButtonOptimize": true,
+   "isAutoOpenApp": true,
+   "darkModeAdaptation": true,
+   "serverToken": "",
+   "abParams": {
+    "reflow_video_page_optimize": "2",
+    "search_video_mark_abtest": "0",
+    "share_page_dark_mode_adaptation": "1",
+    "reflow_page_open_app_optimize": "4",
+    "reflow_page_auto_open_optimize": "1",
+    "reflow_to_featured_app": "1",
+    "select_pool_data": {
+     "use_new_select_scope": 0
+    },
+    "jx_label_display_position_list": [
+     "main",
+     "related_card"
+    ],
+    "reflow_page_615883_optimaze": false,
+    "show_rec_group_list": "0",
+    "is_use_ulink": false
+   }
+  }
+ },
+ "errors": null
+}

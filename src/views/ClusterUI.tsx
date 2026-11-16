@@ -1,3 +1,5 @@
+import { Checkbox } from '../components/Form'
+import Button from '../components/Button'
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type {
@@ -224,7 +226,7 @@ export function ScopeGrid({
       {SCOPE_ITEMS.map((item) => {
         const on = scope[item.key]
         return (
-          <button
+          <Button
             key={item.key}
             type="button"
             className={`sync-scope ${on ? 'is-on' : ''}`}
@@ -242,7 +244,7 @@ export function ScopeGrid({
             <span className="sync-scope-mark" aria-hidden="true">
               {on && <Icon name="check" size={10} />}
             </span>
-          </button>
+          </Button>
         )
       })}
     </div>
@@ -301,14 +303,14 @@ export function TargetList({
         <span className="sync-targets-count">
           已选 <strong>{selected.length}</strong> / {members.length}
         </span>
-        <button
+        <Button
           className="ghost sm"
           type="button"
           onClick={onToggleAll}
           disabled={!selectable.length || !!busy}
         >
           {allSelected ? '清空' : '全选'}
-        </button>
+        </Button>
       </div>
       <div className="sync-targets">
         {members.map((member) => {
@@ -323,7 +325,7 @@ export function TargetList({
             >
               <div className="sync-target-row">
                 <label className={`sync-target-pick ${disabled ? 'is-disabled' : ''}`}>
-                  <input
+                  <Checkbox
                     type="checkbox"
                     checked={isSelected}
                     disabled={disabled || !!busy}
@@ -350,7 +352,7 @@ export function TargetList({
                     <span>{lastApplied ? `上次 ${when(lastApplied)}` : '未同步'}</span>
                   </span>
                 </label>
-                <button
+                <Button
                   type="button"
                   className={`sync-icon-button ${isExpanded ? 'is-open' : ''}`}
                   onClick={() => onExpand(member.id)}
@@ -359,7 +361,7 @@ export function TargetList({
                   title={isExpanded ? '收起详情' : '展开详情'}
                 >
                   <Icon name="chevron" size={14} />
-                </button>
+                </Button>
               </div>
               {isExpanded && (
                 <div className="sync-target-detail">
@@ -408,14 +410,14 @@ export function TargetList({
                   )}
                   <div className="sync-target-footer">
                     <span>{member.online ? `最后心跳 ${when(member.lastSeen)}` : `离线 ${when(member.lastSeen)}`}</span>
-                    <button
+                    <Button
                       className={confirmRemove === `remove:${member.id}` ? 'danger sm' : 'ghost sm'}
                       type="button"
                       onClick={() => onRemove(member)}
                       disabled={!!busy}
                     >
                       {confirmRemove === `remove:${member.id}` ? '确认移除？' : '移除成员'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -493,7 +495,7 @@ function SyncDetails({
   return (
     <>
       <div className="sync-log">
-        <button
+        <Button
           type="button"
           className="sync-log-toggle"
           onClick={() => {
@@ -505,7 +507,7 @@ function SyncDetails({
           <Icon name="console" size={13} />
           <span>详情</span>
           <span className="sync-log-count">{events.length}</span>
-        </button>
+        </Button>
       </div>
       {open && (
         <OperationDialog
@@ -545,7 +547,7 @@ function SyncDetails({
           onClose={() => setOpen(false)}
           footer={
             active && onCancel ? (
-              <button
+              <Button
                 className="ghost stop"
                 type="button"
                 onClick={() => onCancel(job)}
@@ -554,7 +556,7 @@ function SyncDetails({
               >
                 <Icon name="stop" size={13} />
                 {cancelling ? '取消中…' : '取消同步'}
-              </button>
+              </Button>
             ) : null
           }
         >
@@ -692,27 +694,27 @@ function SyncEvent({
           (onRetry && (job.status === 'failed' || job.status === 'partial'))) && (
           <div className="sync-event-actions">
             {onRetry && (job.status === 'failed' || job.status === 'partial') && (
-              <button
+              <Button
                 type="button"
                 className="primary sm"
                 onClick={() => onRetry(job)}
                 disabled={busy === `retry-${job.id}`}
               >
                 {busy === `retry-${job.id}` ? '重试中…' : '重试'}
-              </button>
+              </Button>
             )}
             {onCancel && active && (
-              <button
+              <Button
                 type="button"
                 className="ghost sm"
                 onClick={() => onCancel(job)}
                 disabled={cancelling}
               >
                 {cancelling ? '取消中…' : '取消'}
-              </button>
+              </Button>
             )}
             {onDelete && !active && (
-              <button
+              <Button
                 type="button"
                 className={confirmAction === `delete:${job.id}` ? 'danger sm' : 'ghost sm'}
                 onClick={() => onDelete(job)}
@@ -723,7 +725,7 @@ function SyncEvent({
                   : confirmAction === `delete:${job.id}`
                     ? '确认删除？'
                     : '删除'}
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -844,12 +846,11 @@ export function PreparePanel({
       tab={tab}
       onTab={setTab}
       detailLabel="准备详情"
-      closeLabel={prep.done ? '关闭' : '准备中…'}
-      allowHideOnRun={false}
+      closeLabel={prep.done ? '关闭' : undefined}
       onClose={onClose}
       footer={
         !prep.done ? (
-          <button
+          <Button
             className="ghost stop"
             type="button"
             onClick={onCancel}
@@ -858,7 +859,7 @@ export function PreparePanel({
           >
             <Icon name="stop" size={13} />
             {prep.cancelling ? '停止中…' : '停止准备'}
-          </button>
+          </Button>
         ) : null
       }
     >
@@ -923,9 +924,9 @@ export function SyncDialog({
       >
         <header className="sync-modal-head">
           <h2>{title}</h2>
-          <button className="sync-icon-button" onClick={onClose} aria-label="关闭">
+          <Button className="sync-icon-button" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={16} />
-          </button>
+          </Button>
         </header>
         <div className="sync-modal-body">{children}</div>
       </section>
@@ -1209,14 +1210,14 @@ export function ComparePanel({
             placeholder="选择本机实例"
           />
         </label>
-        <button
+        <Button
           className="primary"
           disabled={!sourceId || !targetId || busy === 'compare'}
           onClick={onCompare}
         >
           <Icon name="refresh" size={14} />
           {busy === 'compare' ? '比较中…' : '比较'}
-        </button>
+        </Button>
       </div>
       {comparison ? (
         <div className="sync-compare-result">
@@ -1339,7 +1340,7 @@ export function PendingList({
                 </div>
               )}
               <label className="sync-check">
-                <input
+                <Checkbox
                   type="checkbox"
                   checked={!!cleanup.allowDirtyTarget}
                   onChange={(e) =>
@@ -1352,7 +1353,7 @@ export function PendingList({
                 <div className="sync-confirm-cleanup">
                   {jobScope.nodes && (
                     <label className="sync-check">
-                      <input
+                      <Checkbox
                         type="checkbox"
                         checked={cleanup.removeExtraNodes}
                         onChange={(e) => onCleanup(job.id, { ...cleanup, removeExtraNodes: e.target.checked })}
@@ -1362,7 +1363,7 @@ export function PendingList({
                   )}
                   {jobScope.models && (
                     <label className="sync-check">
-                      <input
+                      <Checkbox
                         type="checkbox"
                         checked={cleanup.removeExtraModels}
                         onChange={(e) =>
@@ -1375,21 +1376,21 @@ export function PendingList({
                 </div>
               )}
               <div className="sync-confirm-actions">
-                <button
+                <Button
                   className="primary"
                   disabled={!!busy || !targetId || blocked}
                   onClick={() => onConfirm(job)}
                 >
                   <Icon name="check" size={14} />
                   {busy === `confirm-${job.id}` ? '接受中…' : '接受并开始'}
-                </button>
-                <button
+                </Button>
+                <Button
                   className={confirmAction === `reject:${job.id}` ? 'danger' : 'ghost'}
                   disabled={!!busy}
                   onClick={() => onReject(job)}
                 >
                   {confirmAction === `reject:${job.id}` ? '确认拒绝？' : '拒绝'}
-                </button>
+                </Button>
               </div>
               <SyncDetails job={job} />
             </article>

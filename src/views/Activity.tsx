@@ -1,3 +1,4 @@
+import Button from '../components/Button'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type { ActivityEntry, InstanceConfig } from '../types'
@@ -126,7 +127,7 @@ export default function Activity({ inst }: Props) {
             </span>
           )}
           <div className="spacer" />
-          <button
+          <Button
             className="ghost sm"
             onClick={() => void load()}
             disabled={busy}
@@ -134,7 +135,7 @@ export default function Activity({ inst }: Props) {
           >
             <Icon name="refresh" size={13} />
             {busy ? '刷新中…' : '刷新'}
-          </button>
+          </Button>
         </div>
         <div className="panel-body">
           {error && <div className="banner err">{error}</div>}
@@ -150,7 +151,7 @@ export default function Activity({ inst }: Props) {
                   <li key={item.id} className={`snap-node${isOpen ? ' is-open' : ''}`}>
                     <span className={`snap-dot${dotClass(item.level)}`} aria-hidden="true" />
                     <div className="snap-node-body">
-                      <button
+                      <Button
                         type="button"
                         className={`snap-row-head${isOpen ? ' is-open' : ''}`}
                         aria-expanded={isOpen}
@@ -172,7 +173,7 @@ export default function Activity({ inst }: Props) {
                             </span>
                           </span>
                         </span>
-                      </button>
+                      </Button>
 
                       {isOpen && (
                         <div className="snap-card">

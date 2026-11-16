@@ -155,7 +155,9 @@ pub async fn app_update_check(
             // updater 用 `time` crate 的 OffsetDateTime（不是 chrono），只取时间戳再交给 chrono 格式化
             pub_date: update
                 .date
-                .and_then(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.unix_timestamp(), 0))
+                .and_then(|d| {
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(d.unix_timestamp(), 0)
+                })
                 .map(|dt| dt.to_rfc3339()),
             available: true,
             running,

@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { TextInput, Checkbox, Range, DirectoryInput } from '../components/Form'
+import Button from '../components/Button'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { api, errText } from '../lib/api'
 import type {
   AppInfo,
   AppUpdate,
   GitInfo,
   GlobalSettings,
+  IslandIdleShape,
   RuntimeEvent,
   RuntimeStatus,
   StorageSettings,
@@ -18,6 +21,24 @@ import type {
 import Icon, { type IconName } from '../components/Icon'
 import ModelDirList from '../components/ModelDirList'
 import Segmented from '../components/Segmented'
+import {
+  IslandShape,
+  islandGlowStyle,
+  islandIdleStyle,
+  normalizeIslandShape,
+  ISLAND_ANIM_SPEED_MAX,
+  ISLAND_ANIM_SPEED_MIN,
+  ISLAND_BOTTOM_GAP_MAX,
+  ISLAND_BOTTOM_GAP_MIN,
+  ISLAND_GLOW_RANGE_MAX,
+  ISLAND_GLOW_RANGE_MIN,
+  ISLAND_SHAPE_ACTION_GAP_MAX,
+  ISLAND_SHAPE_ACTION_GAP_MIN,
+  ISLAND_SHAPE_INSET_MAX,
+  ISLAND_SHAPE_INSET_MIN,
+  ISLAND_WIDTH_MAX,
+  ISLAND_WIDTH_MIN,
+} from '../components/IslandShape'
 import coreLogo from '../assets/core-logo.svg'
 import {
   DEFAULT_DARK_PALETTE,
@@ -33,10 +54,29 @@ import {
   type ThemeMode,
 } from '../lib/theme'
 
-export type SettingsSection = 'appearance' | 'network' | 'storage' | 'runtime' | 'sync' | 'logs' | 'update'
+const IDLE_SHAPES: { value: IslandIdleShape; label: string }[] = [
+  { value: 'chevrons', label: '箭头' },
+  { value: 'targets', label: '圆环' },
+]
+
+function previewClockText(): string {
+  const now = new Date()
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+}
+
+export type SettingsSection =
+  | 'appearance'
+  | 'island'
+  | 'network'
+  | 'storage'
+  | 'runtime'
+  | 'sync'
+  | 'logs'
+  | 'update'
 
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: 'appearance', label: '外观', icon: 'overview' },
+  { id: 'island', label: '灵动岛', icon: 'console' },
   { id: 'network', label: '网络与镜像', icon: 'globe' },
   { id: 'storage', label: '存储', icon: 'box' },
   { id: 'runtime', label: '运行', icon: 'power' },
@@ -80,14 +120,14 @@ function ColorField(props: {
     <div className="field color-field">
       <label>{label}</label>
       <div className="color-row">
-        <input
+        <TextInput
           className="color-chip"
           type="color"
           aria-label={`${label}取色`}
           value={picker}
           onChange={(e) => onChange(e.target.value)}
         />
-        <input
+        <TextInput
           className="mono color-hex"
           aria-label={label}
           value={value}
@@ -116,7 +156,7 @@ function LogSizeField({ bytes, onChange }: { bytes: number; onChange: (bytes: nu
     setText(format(clamped * 1024 * 1024))
   }
   return (
-    <input
+    <TextInput
       aria-label="操作日志文件上限（MB）"
       type="number"
       min={0.0625}
@@ -178,6 +218,7 @@ export default function SettingsView({
     if (focusSection) setSection(focusSection)
   }, [focusSection])
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
+  const [previewClock, setPreviewClock] = useState(previewClockText)
   const [baseline, setBaseline] = useState<string | null>(null)
   const [editMode, setEditMode] = useState<ThemeMode>('dark')
   const [busy, setBusy] = useState(false)
@@ -197,6 +238,7 @@ export default function SettingsView({
   const load = useCallback(async () => {
     try {
       const next = await api.settingsGet()
+      next.ui.islandIdleShape = normalizeIslandShape(next.ui.islandIdleShape)
       setSettings(next)
       setEditMode(next.ui.theme)
       setBaseline(JSON.stringify(next))
@@ -315,6 +357,7 @@ export default function SettingsView({
       setSettings(saved)
       setBaseline(JSON.stringify(saved))
       applyTheme(saved.ui)
+      onPreviewTheme?.(saved.ui)
       onThemeChange?.(saved.ui.theme)
       void loadCacheInfo()
       void loadUvCacheInfo()
@@ -370,6 +413,17 @@ export default function SettingsView({
   useEffect(() => onBusy(busy), [busy, onBusy])
 
   useEffect(() => {
+    if (!active || section !== 'island') return
+    setPreviewClock(previewClockText())
+    if (settings?.ui.islandIdleContent !== 'time') return
+    const timer = window.setInterval(
+      () => setPreviewClock(previewClockText()),
+      1000,
+    )
+    return () => window.clearInterval(timer)
+  }, [active, section, settings?.ui.islandIdleContent])
+
+  useEffect(() => {
     // 设置页常驻后，隐藏时别抢全局 Ctrl+S。
     if (!active) return
     const onKey = (e: KeyboardEvent) => {
@@ -384,6 +438,45 @@ export default function SettingsView({
 
   if (!settings) return <div className="faint">加载设置…</div>
 
+  const islandPreviewClock = previewClock
+  const islandPreviewStyle = {
+    ...islandIdleStyle(
+      settings.ui.islandWidth,
+      settings.ui.islandAnimationSpeed,
+      settings.ui.islandShapeInset,
+      settings.ui.islandIdleContent === 'animation',
+    ),
+    ...islandGlowStyle(settings.ui.islandGlowColor, settings.ui.islandGlowRange),
+  } as CSSProperties
+  const islandPreviewText =
+    settings.ui.islandIdleContent === 'time'
+      ? islandPreviewClock
+      : settings.ui.islandIdleContent === 'custom'
+        ? settings.ui.islandIdleText.trim() || '控制台'
+        : '控制台'
+  const islandPreviewVisual =
+    settings.ui.islandIdleContent === 'animation' ? (
+      <IslandShape shape={settings.ui.islandIdleShape} />
+    ) : (
+      <>
+        <Icon
+          name={settings.ui.islandIdleContent === 'time' ? 'clock' : 'console'}
+          size={13}
+        />
+        <span
+          className={
+            settings.ui.islandIdleContent === 'time'
+              ? 'mono'
+              : settings.ui.islandIdleContent === 'custom'
+                ? 'island-idle-custom'
+                : undefined
+          }
+        >
+          {islandPreviewText}
+        </span>
+      </>
+    )
+
   const setMirror = (key: keyof GlobalSettings['mirrors'], value: string) =>
     setSettings({ ...settings, mirrors: { ...settings.mirrors, [key]: value.trim() || null } })
 
@@ -391,8 +484,9 @@ export default function SettingsView({
     setSettings({ ...settings, wheelRepo: value.trim() || null })
 
   const applyDraft = (ui: UiOpts) => {
-    setSettings({ ...settings, ui })
-    onPreviewTheme?.(ui)
+    const next = { ...ui, islandIdleShape: normalizeIslandShape(ui.islandIdleShape) }
+    setSettings({ ...settings, ui: next })
+    onPreviewTheme?.(next)
   }
 
   const setPalette = (key: keyof ThemePalette, value: string) => {
@@ -506,7 +600,7 @@ export default function SettingsView({
     <div className="settings-layout" ref={layoutRef}>
       <nav className="settings-rail" aria-label="设置分类">
         {SETTINGS_SECTIONS.map((item) => (
-          <button
+          <Button
             key={item.id}
             type="button"
             className={`settings-nav${section === item.id ? ' active' : ''}`}
@@ -515,7 +609,7 @@ export default function SettingsView({
           >
             <Icon name={item.icon} size={14} />
             <span>{item.label}</span>
-          </button>
+          </Button>
         ))}
       </nav>
 
@@ -526,7 +620,7 @@ export default function SettingsView({
               <h2>外观</h2>
               <span className="badge ghost">实时预览</span>
               <div className="spacer" />
-              <button className="ghost sm" onClick={resetTheme}>恢复默认配色</button>
+              <Button className="ghost sm" onClick={resetTheme}>恢复默认配色</Button>
             </div>
             <div className="panel-body">
               <div className="appearance-theme-row">
@@ -579,7 +673,7 @@ export default function SettingsView({
                     卡片透明度
                     <span className="mono card-alpha-value">{settings.ui.cardTransparency}%</span>
                   </span>
-                  <input
+                  <Range
                     type="range"
                     min={0}
                     max={MAX_CARD_TRANSPARENCY}
@@ -622,6 +716,296 @@ export default function SettingsView({
           </div>
         )}
 
+        {section === 'island' && (
+          <div className="panel">
+            <div className="panel-head">
+              <h2>灵动岛</h2>
+              <span className="badge ghost">实时预览</span>
+            </div>
+            <div className="panel-body island-settings-body">
+              <div className="island-settings-layout">
+                <div className="island-settings-sections">
+                  <section className="island-settings-section">
+                    <h3>位置</h3>
+                    <div className="island-settings-grid">
+                      <label className="field card-alpha-field island-bottom-field">
+                        <span>
+                          底部距离
+                          <span className="mono card-alpha-value">
+                            {settings.ui.islandBottomGap}px
+                          </span>
+                        </span>
+                        <Range
+                          aria-label="底部距离"
+                          min={ISLAND_BOTTOM_GAP_MIN}
+                          max={ISLAND_BOTTOM_GAP_MAX}
+                          step={2}
+                          value={settings.ui.islandBottomGap}
+                          onChange={(e) =>
+                            applyDraft({
+                              ...settings.ui,
+                              islandBottomGap: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="island-settings-section">
+                    <h3>空闲</h3>
+                    <div className="island-settings-grid">
+                      <label className="field">
+                        <span>空闲任务条</span>
+                        <Segmented
+                          ariaLabel="空闲任务条"
+                          value={settings.ui.taskBarIdle}
+                          options={[
+                            { value: 'auto', label: '自动隐藏' },
+                            { value: 'always', label: '常驻' },
+                          ]}
+                          onChange={(value) =>
+                            applyDraft({ ...settings.ui, taskBarIdle: value })
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>通知停留</span>
+                        <Segmented
+                          ariaLabel="通知停留"
+                          value={String(settings.ui.noticeSeconds)}
+                          options={[1, 2, 3, 4, 5].map((seconds) => ({
+                            value: String(seconds),
+                            label: `${seconds} 秒`,
+                          }))}
+                          onChange={(value) =>
+                            applyDraft({ ...settings.ui, noticeSeconds: Number(value) })
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>空闲内容</span>
+                        <Segmented
+                          ariaLabel="空闲内容"
+                          value={settings.ui.islandIdleContent}
+                          options={[
+                            { value: 'animation', label: '动画' },
+                            { value: 'time', label: '时间' },
+                            { value: 'custom', label: '自定义' },
+                          ]}
+                          onChange={(value) =>
+                            applyDraft({ ...settings.ui, islandIdleContent: value })
+                          }
+                        />
+                      </label>
+
+                      <label className="field card-alpha-field">
+                        <span>
+                          空闲宽度
+                          <span className="mono card-alpha-value">
+                            {settings.ui.islandWidth}px
+                          </span>
+                        </span>
+                        <Range
+                          aria-label="空闲宽度"
+                          min={ISLAND_WIDTH_MIN}
+                          max={ISLAND_WIDTH_MAX}
+                          step={2}
+                          value={settings.ui.islandWidth}
+                          onChange={(e) =>
+                            applyDraft({
+                              ...settings.ui,
+                              islandWidth: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+
+                      <label className="field card-alpha-field island-speed-field">
+                        <span>
+                          动画速度
+                          <span className="mono card-alpha-value">
+                            {(settings.ui.islandAnimationSpeed / 100).toFixed(1)}×
+                          </span>
+                        </span>
+                        <Range
+                          aria-label="动画速度"
+                          min={ISLAND_ANIM_SPEED_MIN}
+                          max={ISLAND_ANIM_SPEED_MAX}
+                          step={10}
+                          value={settings.ui.islandAnimationSpeed}
+                          onChange={(e) =>
+                            applyDraft({
+                              ...settings.ui,
+                              islandAnimationSpeed: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+
+                      {settings.ui.islandIdleContent === 'custom' && (
+                        <label className="field">
+                          <span>自定义内容</span>
+                          <TextInput
+                            aria-label="自定义内容"
+                            maxLength={24}
+                            value={settings.ui.islandIdleText}
+                            onChange={(e) =>
+                              applyDraft({
+                                ...settings.ui,
+                                islandIdleText: e.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </section>
+
+                  {settings.ui.islandIdleContent === 'animation' && (
+                    <section className="island-settings-section">
+                      <h3>默认形态</h3>
+                      <div className="island-shape-options" role="radiogroup" aria-label="默认形态">
+                        {IDLE_SHAPES.map(({ value, label }) => {
+                          const active = settings.ui.islandIdleShape === value
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              className={`island-shape-option${active ? ' is-active' : ''}`}
+                              onClick={() =>
+                                applyDraft({ ...settings.ui, islandIdleShape: value })
+                              }
+                            >
+                              <span className="island-shape-tile">
+                                <IslandShape shape={value} />
+                              </span>
+                              <span className="island-shape-option-label">{label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <label className="field card-alpha-field island-inset-field">
+                        <span>
+                          两侧距离
+                          <span className="mono card-alpha-value">
+                            {settings.ui.islandShapeInset}px
+                          </span>
+                        </span>
+                        <Range
+                          aria-label="两侧距离"
+                          min={ISLAND_SHAPE_INSET_MIN}
+                          max={ISLAND_SHAPE_INSET_MAX}
+                          step={1}
+                          value={settings.ui.islandShapeInset}
+                          onChange={(e) =>
+                            applyDraft({
+                              ...settings.ui,
+                              islandShapeInset: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="field card-alpha-field island-inset-field">
+                        <span>
+                          按钮间距
+                          <span className="mono card-alpha-value">
+                            {settings.ui.islandShapeActionGap}px
+                          </span>
+                        </span>
+                        <Range
+                          aria-label="按钮间距"
+                          min={ISLAND_SHAPE_ACTION_GAP_MIN}
+                          max={ISLAND_SHAPE_ACTION_GAP_MAX}
+                          step={1}
+                          value={settings.ui.islandShapeActionGap}
+                          onChange={(e) =>
+                            applyDraft({
+                              ...settings.ui,
+                              islandShapeActionGap: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                    </section>
+                  )}
+
+                  <section className="island-settings-section">
+                    <h3>外发光</h3>
+                    <div className="island-settings-grid">
+                      <label className="field">
+                        <span>外发光</span>
+                        <Segmented
+                          ariaLabel="外发光"
+                          value={settings.ui.islandGlow ? 'on' : 'off'}
+                          options={[
+                            { value: 'on', label: '开启' },
+                            { value: 'off', label: '关闭' },
+                          ]}
+                          onChange={(value) =>
+                            applyDraft({
+                              ...settings.ui,
+                              islandGlow: value === 'on',
+                            })
+                          }
+                        />
+                      </label>
+
+                      {settings.ui.islandGlow && (
+                        <ColorField
+                          label="默认发光颜色"
+                          value={settings.ui.islandGlowColor}
+                          onChange={(value) =>
+                            applyDraft({ ...settings.ui, islandGlowColor: value })
+                          }
+                        />
+                      )}
+
+                      {settings.ui.islandGlow && (
+                        <label className="field card-alpha-field island-glow-range-field">
+                          <span>
+                            发光范围
+                            <span className="mono card-alpha-value">
+                              {settings.ui.islandGlowRange}px
+                            </span>
+                          </span>
+                          <Range
+                            aria-label="发光范围"
+                            min={ISLAND_GLOW_RANGE_MIN}
+                            max={ISLAND_GLOW_RANGE_MAX}
+                            step={2}
+                            value={settings.ui.islandGlowRange}
+                            onChange={(e) =>
+                              applyDraft({
+                                ...settings.ui,
+                                islandGlowRange: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </section>
+
+                </div>
+
+                <aside className="island-settings-preview" aria-hidden="true">
+                  <span
+                    className={`island-idle${settings.ui.islandIdleContent === 'animation' ? ' island-idle-anim' : ''}${settings.ui.islandGlow ? ' is-glowing' : ''}`}
+                    style={islandPreviewStyle}
+                  >
+                    {islandPreviewVisual}
+                  </span>
+                </aside>
+              </div>
+            </div>
+          </div>
+        )}
+
         {section === 'network' && (
           <div className="panel">
             <div className="panel-head">
@@ -632,14 +1016,14 @@ export default function SettingsView({
               <div className="grid-2">
                 <div className="field">
                   <label>PyPI 镜像</label>
-                  <input
+                  <TextInput
                     aria-label="PyPI 镜像" value={settings.mirrors.pypi ?? ''}
                     onChange={(e) => setMirror('pypi', e.target.value)}
                   />
                 </div>
                 <div className="field">
                   <label>HuggingFace 镜像</label>
-                  <input
+                  <TextInput
                     aria-label="HuggingFace 镜像" value={settings.mirrors.hf ?? ''}
                     placeholder="https://hf-mirror.com"
                     onChange={(e) => setMirror('hf', e.target.value)}
@@ -647,7 +1031,7 @@ export default function SettingsView({
                 </div>
                 <div className="field">
                   <label>PyTorch 镜像</label>
-                  <input
+                  <TextInput
                     aria-label="PyTorch 镜像" value={settings.mirrors.torch ?? ''}
                     onChange={(e) => setMirror('torch', e.target.value)}
                   />
@@ -658,7 +1042,7 @@ export default function SettingsView({
                 </div>
                 <div className="field">
                   <label>GitHub 加速</label>
-                  <input
+                  <TextInput
                     aria-label="GitHub 加速" value={settings.mirrors.githubProxy ?? ''}
                     placeholder="https://gh-proxy.com/https://github.com"
                     onChange={(e) => setMirror('githubProxy', e.target.value)}
@@ -666,7 +1050,7 @@ export default function SettingsView({
                 </div>
                 <div className="field" style={{ gridColumn: '1 / -1' }}>
                   <label>云端轮子仓库</label>
-                  <input
+                  <TextInput
                     className="mono"
                     aria-label="云端轮子仓库"
                     value={settings.wheelRepo ?? ''}
@@ -680,7 +1064,7 @@ export default function SettingsView({
                 </div>
               </div>
               <label className="toggle">
-                <input
+                <Checkbox
                   type="checkbox"
                   checked={settings.network.hfOffline}
                   onChange={(e) => setNetwork({ hfOffline: e.target.checked })}
@@ -712,64 +1096,52 @@ export default function SettingsView({
               <div className="stack" style={{ marginTop: 14, gap: 14 }}>
                 <div className="field">
                   <label>共享输入目录</label>
-                  <div className="dir-single">
-                    <input
-                      className="mono"
-                      aria-label="共享输入目录"
-                      placeholder={sharedExample('input')}
-                      value={settings.storage.sharedInput ?? ''}
-                      spellCheck={false}
-                      onChange={(e) => setStorage({ sharedInput: e.target.value.trim() || null })}
-                    />
-                    <button
-                      type="button"
-                      className="ghost sm"
-                      onClick={() => setStorage({ sharedInput: sharedExample('input') })}
-                    >
-                      用默认位置
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost sm icon-btn"
-                      aria-label="打开共享输入目录"
-                      title="打开目录"
-                      disabled={!settings.storage.sharedInput}
-                      onClick={() => void openShared(settings.storage.sharedInput)}
-                    >
-                      <Icon name="folder" size={13} />
-                    </button>
-                  </div>
+                  <DirectoryInput
+                    wrapperClassName="dir-single"
+                    className="mono"
+                    aria-label="共享输入目录"
+                    placeholder={sharedExample('input')}
+                    value={settings.storage.sharedInput ?? ''}
+                    spellCheck={false}
+                    onChange={(e) => setStorage({ sharedInput: e.target.value.trim() || null })}
+                    actions={
+                      <Button
+                        type="button"
+                        className="ghost sm"
+                        onClick={() => setStorage({ sharedInput: sharedExample('input') })}
+                      >
+                        用默认位置
+                      </Button>
+                    }
+                    onOpen={() => void openShared(settings.storage.sharedInput)}
+                    openTitle="打开共享输入目录"
+                    openDisabled={!settings.storage.sharedInput}
+                  />
                   <span className="hint">留空就用实例自己的目录。</span>
                 </div>
                 <div className="field">
                   <label>共享输出目录</label>
-                  <div className="dir-single">
-                    <input
-                      className="mono"
-                      aria-label="共享输出目录"
-                      placeholder={sharedExample('output')}
-                      value={settings.storage.sharedOutput ?? ''}
-                      spellCheck={false}
-                      onChange={(e) => setStorage({ sharedOutput: e.target.value.trim() || null })}
-                    />
-                    <button
-                      type="button"
-                      className="ghost sm"
-                      onClick={() => setStorage({ sharedOutput: sharedExample('output') })}
-                    >
-                      用默认位置
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost sm icon-btn"
-                      aria-label="打开共享输出目录"
-                      title="打开目录"
-                      disabled={!settings.storage.sharedOutput}
-                      onClick={() => void openShared(settings.storage.sharedOutput)}
-                    >
-                      <Icon name="folder" size={13} />
-                    </button>
-                  </div>
+                  <DirectoryInput
+                    wrapperClassName="dir-single"
+                    className="mono"
+                    aria-label="共享输出目录"
+                    placeholder={sharedExample('output')}
+                    value={settings.storage.sharedOutput ?? ''}
+                    spellCheck={false}
+                    onChange={(e) => setStorage({ sharedOutput: e.target.value.trim() || null })}
+                    actions={
+                      <Button
+                        type="button"
+                        className="ghost sm"
+                        onClick={() => setStorage({ sharedOutput: sharedExample('output') })}
+                      >
+                        用默认位置
+                      </Button>
+                    }
+                    onOpen={() => void openShared(settings.storage.sharedOutput)}
+                    openTitle="打开共享输出目录"
+                    openDisabled={!settings.storage.sharedOutput}
+                  />
                   <span className="hint">多人共用时文件会混在一起。</span>
                 </div>
               </div>
@@ -777,7 +1149,7 @@ export default function SettingsView({
               <div className="field" style={{ maxWidth: 560, marginTop: 16 }}>
                 <label>UV 缓存自动清理阈值</label>
                 <div className="dir-single" style={{ maxWidth: 150 }}>
-                  <input
+                  <TextInput
                     aria-label="UV 缓存自动清理阈值（GB）"
                     type="number"
                     min={0}
@@ -807,7 +1179,7 @@ export default function SettingsView({
                   <strong style={{ fontSize: 20, fontVariantNumeric: 'tabular-nums' }}>
                     {uvInfo ? cacheSize(uvInfo.totalBytes) : uvBusy ? '统计中…' : '—'}
                   </strong>
-                  <button
+                  <Button
                     type="button"
                     className="ghost sm icon-btn"
                     aria-label="刷新 UV 缓存大小"
@@ -816,35 +1188,35 @@ export default function SettingsView({
                     onClick={() => void loadUvCacheInfo()}
                   >
                     <Icon name="refresh" size={13} />
-                  </button>
+                  </Button>
                   {uvConfirm ? (
                     <>
-                      <button
+                      <Button
                         type="button"
                         className="danger sm"
                         disabled={uvBusy}
                         onClick={() => void clearUvCache()}
                       >
                         {uvBusy ? '清理中…' : '确认清理'}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         className="ghost sm"
                         disabled={uvBusy}
                         onClick={() => setUvConfirm(false)}
                       >
                         取消
-                      </button>
+                      </Button>
                     </>
                   ) : (
-                    <button
+                    <Button
                       type="button"
                       className="ghost sm"
                       disabled={uvBusy || !uvInfo || uvInfo.totalBytes === 0}
                       onClick={() => setUvConfirm(true)}
                     >
                       清理
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <span className="hint is-status">
@@ -858,30 +1230,21 @@ export default function SettingsView({
 
               <div className="field" style={{ maxWidth: 560, marginTop: 18 }}>
                 <label>本地 Wheel 库</label>
-                <div className="dir-single">
-                  <input
-                    className="mono"
-                    aria-label="本地 Wheel 库目录"
-                    value={settings.wheels ?? ''}
-                    spellCheck={false}
-                    onChange={(e) =>
-                      setSettings({ ...settings, wheels: e.target.value.trim() || null })
-                    }
-                  />
-                  <button type="button" className="ghost sm" onClick={() => void chooseWheelsDir()}>
-                    选择目录
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost sm icon-btn"
-                    aria-label="打开本地 Wheel 库"
-                    title="打开目录"
-                    disabled={!settings.wheels}
-                    onClick={() => void openShared(settings.wheels ?? null)}
-                  >
-                    <Icon name="folder" size={13} />
-                  </button>
-                </div>
+                <DirectoryInput
+                  wrapperClassName="dir-single"
+                  className="mono"
+                  aria-label="本地 Wheel 库目录"
+                  value={settings.wheels ?? ''}
+                  spellCheck={false}
+                  onChange={(e) =>
+                    setSettings({ ...settings, wheels: e.target.value.trim() || null })
+                  }
+                  onPick={() => void chooseWheelsDir()}
+                  pickLabel="选择目录"
+                  onOpen={() => void openShared(settings.wheels ?? null)}
+                  openTitle="打开本地 Wheel 库"
+                  openDisabled={!settings.wheels}
+                />
                 <div
                   style={{
                     display: 'flex',
@@ -898,7 +1261,7 @@ export default function SettingsView({
                         ? '统计中…'
                         : '—'}
                   </strong>
-                  <button
+                  <Button
                     type="button"
                     className="ghost sm icon-btn"
                     aria-label="刷新本地 Wheel 库"
@@ -907,7 +1270,7 @@ export default function SettingsView({
                     onClick={() => void loadWheelsInfo()}
                   >
                     <Icon name="refresh" size={13} />
-                  </button>
+                  </Button>
                   {wheelsInfo && wheelsInfo.configured && !wheelsInfo.exists ? (
                     <span className="hint is-status">目录不存在</span>
                   ) : null}
@@ -926,7 +1289,7 @@ export default function SettingsView({
               <div className="panel-body grid-2">
                 <div className="field">
                   <label>自定义 Git（可选）</label>
-                  <input
+                  <TextInput
                     aria-label="自定义 Git 路径" value={settings.paths.git ?? ''}
                     placeholder="留空使用内置 MinGit"
                     onChange={(e) =>
@@ -940,7 +1303,7 @@ export default function SettingsView({
                 <div className="field">
                   <label>端口区间</label>
                   <div className="inline-input">
-                    <input
+                    <TextInput
                       type="number"
                       aria-label="端口区间起始" value={settings.network.portRange[0]}
                       onChange={(e) =>
@@ -950,7 +1313,7 @@ export default function SettingsView({
                       }
                     />
                     <span className="faint">至</span>
-                    <input
+                    <TextInput
                       type="number"
                       aria-label="端口区间结束" value={settings.network.portRange[1]}
                       onChange={(e) =>
@@ -962,7 +1325,7 @@ export default function SettingsView({
                   </div>
                 </div>
                 <label className="toggle" style={{ gridColumn: '1 / -1' }}>
-                  <input
+                  <Checkbox
                     type="checkbox"
                     checked={settings.install.allowInstallScript}
                     onChange={(e) =>
@@ -988,7 +1351,7 @@ export default function SettingsView({
             </div>
             <div className="panel-body">
               <label className="toggle">
-                <input
+                <Checkbox
                   type="checkbox"
                   checked={settings.sync.removeExtraNodes}
                   onChange={(e) => setSync({ removeExtraNodes: e.target.checked })}
@@ -997,7 +1360,7 @@ export default function SettingsView({
                 <span className="hint">成员确认页里仍可逐次取消；删除前会备份。</span>
               </label>
               <label className="toggle">
-                <input
+                <Checkbox
                   type="checkbox"
                   checked={settings.sync.removeExtraModels}
                   onChange={(e) => setSync({ removeExtraModels: e.target.checked })}
@@ -1007,7 +1370,7 @@ export default function SettingsView({
               </label>
               <div className="field" style={{ maxWidth: 340, marginTop: 14 }}>
                 <label>旧 venv 保留天数</label>
-                <input
+                <TextInput
                   type="number"
                   min={0}
                   max={30}
@@ -1023,7 +1386,7 @@ export default function SettingsView({
               </div>
               <div className="field" style={{ maxWidth: 340, marginTop: 14 }}>
                 <label>最多保留快照数量</label>
-                <input
+                <TextInput
                   type="number"
                   min={1}
                   max={2000}
@@ -1043,7 +1406,7 @@ export default function SettingsView({
               </div>
               <div className="field" style={{ maxWidth: 340, marginTop: 14 }}>
                 <label>同步缓存保留次数</label>
-                <input
+                <TextInput
                   type="number"
                   min={1}
                   max={100}
@@ -1069,14 +1432,14 @@ export default function SettingsView({
                   <strong style={{ fontSize: 20 }}>
                     {cacheInfo ? cacheSize(cacheInfo.totalBytes) : cacheBusy ? '统计中…' : '—'}
                   </strong>
-                  <button
+                  <Button
                     type="button"
                     className="ghost sm"
                     disabled={cacheBusy}
                     onClick={() => void loadCacheInfo()}
                   >
                     刷新
-                  </button>
+                  </Button>
                 </div>
                 <span className="hint is-status">
                   {cacheError
@@ -1208,17 +1571,17 @@ function RuntimePanel({ notify }: { notify: (kind: 'ok' | 'err', msg: string) =>
       <div className="panel-head">
         <h2>运行时（可选）</h2>
         <div className="spacer" />
-        <button
+        <Button
           className="primary sm"
           onClick={() => void installAll()}
           disabled={busyKind !== null || (!status ? true : status.uv.installed && status.git.installed && status.gitLfs)}
           title="缺什么装什么，已经装好的会跳过"
         >
           一键安装全部（{status?.downloadMb ?? 62.4} MB）
-        </button>
-        <button className="ghost" onClick={() => void refresh()} disabled={busyKind !== null}>
+        </Button>
+        <Button className="ghost" onClick={() => void refresh()} disabled={busyKind !== null}>
           刷新
-        </button>
+        </Button>
       </div>
       <div className="panel-body" style={{ display: 'grid', gap: 10 }}>
         <div className="hint">
@@ -1251,31 +1614,31 @@ function RuntimePanel({ notify }: { notify: (kind: 'ok' | 'err', msg: string) =>
                     <span className="faint mono" style={{ fontSize: 11.5 }}>
                       {row.part?.sizeMb?.toFixed(1) ?? '—'} MB
                     </span>
-                    <button
+                    <Button
                       className="ghost sm"
                       onClick={() => void remove(row.kind)}
                       disabled={busyKind !== null}
                     >
                       {busy ? '处理中…' : '删除'}
-                    </button>
+                    </Button>
                   </>
                 ) : (
-                  <button
+                  <Button
                     className="ghost sm"
                     onClick={() => void install(row.kind)}
                     disabled={busyKind !== null}
                   >
                     {busy ? '下载中…' : `下载（${row.size}）`}
-                  </button>
+                  </Button>
                 )}
                 {installed && row.note && (
-                  <button
+                  <Button
                     className="ghost sm"
                     onClick={() => void install(row.kind)}
                     disabled={busyKind !== null}
                   >
                     修复
-                  </button>
+                  </Button>
                 )}
               </div>
               {row.note && <div className="hint is-status">{row.note}</div>}
@@ -1334,9 +1697,9 @@ function ToolchainPanel() {
       <div className="panel-head">
         <h2>工具链</h2>
         <div className="spacer" />
-        <button className="ghost" onClick={() => void probe()} disabled={busy}>
+        <Button className="ghost" onClick={() => void probe()} disabled={busy}>
           {busy ? '检测中…' : '重新检测'}
-        </button>
+        </Button>
       </div>
       <div className="panel-body">
         {error && (
@@ -1431,9 +1794,9 @@ function UpdatePanel({
         <h2>版本与更新</h2>
         <span className="badge ghost mono">v{info?.version ?? '—'}</span>
         <div className="spacer" />
-        <button className="ghost" onClick={() => void check()} disabled={checking || installing}>
+        <Button className="ghost" onClick={() => void check()} disabled={checking || installing}>
           {checking ? '检查中…' : '检查更新'}
-        </button>
+        </Button>
       </div>
       <div className="panel-body" style={{ display: 'grid', gap: 10 }}>
         <div className="hint">
@@ -1478,13 +1841,13 @@ function UpdatePanel({
               </div>
             )}
             <div>
-              <button
+              <Button
                 className="ghost sm"
                 onClick={() => void install()}
                 disabled={installing || blocked}
               >
                 {installing ? '正在更新…' : '立即更新并重启'}
-              </button>
+              </Button>
             </div>
             {progress && <div className="hint is-status">{progress.message}</div>}
             {installError && (

@@ -569,9 +569,9 @@
 .model-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 14px;
+  padding: 7px 14px 7px 10px;
   border: 0;
   border-bottom: 1px solid var(--line-2);
   border-radius: 0;
@@ -584,8 +584,109 @@ button.model-row { cursor: pointer; }
 .model-row:active { transform: none !important; }
 .model-row:last-child { border-bottom: 0; }
 .model-row:hover { background: var(--hover-1); }
-.model-row.is-file:hover { background: transparent; }
-.model-row:disabled { cursor: default; opacity: 0.6; }
+.model-row.is-selected { background: color-mix(in srgb, var(--blue) 8%, transparent); }
+.model-row.is-cut .model-row-name,
+.model-row.is-cut .model-row-icon { opacity: 0.5; }
+.model-row-check {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0 !important;
+  opacity: 0.8;
+}
+.model-row-check:checked { opacity: 1; }
+.model-row-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.model-row-open:active { transform: none !important; }
+.model-row-open:disabled { cursor: default; opacity: 0.6; }
+.model-row-open:focus-visible {
+  outline: 1.5px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.model-rename-input {
+  width: 100%;
+  height: 23px;
+  min-height: 0;
+  padding: 0 6px;
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-1);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 14%, transparent);
+}
+.model-new-row { padding-left: 10px; background: color-mix(in srgb, var(--blue) 5%, transparent); }
+.model-select-count {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.model-action-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  margin-left: 5px;
+}
+.model-crumbs > .icon-btn.model-op { margin-left: 3px; }
+.model-crumbs .model-op {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-color: transparent;
+  background: transparent;
+}
+.model-crumbs .model-op:hover:not(:disabled) {
+  background: var(--hover-1);
+  border-color: transparent;
+}
+.model-crumbs .model-op.danger { color: var(--red); }
+.model-paste {
+  height: 24px;
+  flex: none;
+  gap: 4px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+.model-paste.is-cut { color: var(--amber, #e0a64b); }
+.model-confirm {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--red) 30%, var(--line));
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-2, 0 10px 30px rgba(0, 0, 0, 0.22));
+}
+.model-confirm-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink-1);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .model-row-icon {
   display: grid;
   place-items: center;
@@ -825,6 +926,51 @@ pre.install-log.log-colored .log-line.ok { color: #7ee2b8; }
   .ov-nodes-head-actions .ov-bulk-label { display: none; }
   .ov-nodes-head-actions .ghost.sm,
   .ov-nodes-head-actions .primary.sm { padding: 0 7px; }
+}
+
+/* ---------------------------------------------------------------- 错误信息 */
+button.error-badge-action {
+  font: inherit;
+  cursor: pointer;
+}
+button.error-badge-action:hover {
+  border-color: color-mix(in srgb, currentColor 36%, transparent);
+}
+button.error-badge-action:active { transform: none; }
+
+.error-tip {
+  position: fixed;
+  z-index: 160;
+  max-width: 300px;
+  padding: 6px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-2);
+  box-shadow: var(--shadow-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.error-tip.is-above { transform: translateY(-100%); }
+
+.modal.error-modal { width: min(620px, 100%); }
+.error-detail {
+  max-height: min(52vh, 460px);
+  margin: 0;
+  padding: 11px 13px;
+  overflow: auto;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--line-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 @media (max-width: 920px) {
   .overview-grid { gap: 14px; }

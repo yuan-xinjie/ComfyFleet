@@ -1,8 +1,8 @@
 use crate::activity::ActivityEntry;
 use crate::error::AppError;
 
-/// 读实例的操作日志（最新在前）。日志文件很小（上限由全局设置控制），但保持和
-/// 其它读命令一致的写法：重活丢阻塞线程，界面永远不卡。
+/// 读实例的操作日志（最新在前）。数据库为主，旧 JSONL 只做一次性导入/兜底；
+/// 仍保持和其它读命令一致的写法：重活丢阻塞线程，界面永远不卡。
 #[tauri::command]
 pub async fn activity_list(
     instance_id: String,

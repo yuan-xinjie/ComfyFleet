@@ -1,0 +1,4 @@
+[toolchain]
+# Windows 上 rustc 1.99.1 在 release 代码生成阶段会随机 0xc0000005/0xc000001d；
+# 1.90.0 可稳定构建当前依赖树，锁住以免 `pnpm tauri build` 继续崩溃。
+channel = "1.90.0"

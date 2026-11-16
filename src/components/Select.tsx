@@ -1,3 +1,4 @@
+import Button from './Button'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -241,7 +242,7 @@ export default function Select({
 
   return (
     <div ref={rootRef} className={`select ${className}`.trim()}>
-      <button
+      <Button
         ref={triggerRef}
         type="button"
         className="select-trigger"
@@ -261,7 +262,7 @@ export default function Select({
           {selectedText}
         </span>
         <Icon name="chevron" size={14} className="select-caret" />
-      </button>
+      </Button>
 
       {open &&
         createPortal(

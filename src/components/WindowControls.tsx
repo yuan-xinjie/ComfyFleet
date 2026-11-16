@@ -1,3 +1,4 @@
+import Button from './Button'
 import { useEffect, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
@@ -71,7 +72,7 @@ export default function WindowControls() {
 
   return (
     <div className="win-controls" data-tauri-drag-region="false">
-      <button
+      <Button
         className="win-btn"
         type="button"
         title="最小化"
@@ -79,8 +80,8 @@ export default function WindowControls() {
         onClick={() => void win.minimize()}
       >
         <MinimizeIcon />
-      </button>
-      <button
+      </Button>
+      <Button
         className="win-btn"
         type="button"
         title={maximized ? '还原' : '最大化'}
@@ -88,8 +89,8 @@ export default function WindowControls() {
         onClick={() => void win.toggleMaximize()}
       >
         {maximized ? <RestoreIcon /> : <MaximizeIcon />}
-      </button>
-      <button
+      </Button>
+      <Button
         className="win-btn close"
         type="button"
         title="关闭到托盘"
@@ -97,7 +98,7 @@ export default function WindowControls() {
         onClick={() => void win.close()}
       >
         <CloseIcon />
-      </button>
+      </Button>
     </div>
   )
 }

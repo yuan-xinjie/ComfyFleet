@@ -540,6 +540,7 @@ pub async fn env_install(
         match &outcome {
             Ok(report) => {
                 cfg.state = InstanceState::Ready;
+                cfg.last_error = None;
                 if let Some(tag) = &report.tag {
                     cfg.comfy.version = Some(tag.clone());
                     cfg.comfy.reference = tag.clone();
@@ -554,6 +555,7 @@ pub async fn env_install(
             }
             Err(e) => {
                 cfg.state = InstanceState::Error;
+                cfg.last_error = Some(format!("环境安装失败：{}", e.message));
                 log::warn!(
                     "环境安装失败：instance={} code={} {}",
                     cfg.id,

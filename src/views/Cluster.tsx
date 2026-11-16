@@ -1,3 +1,5 @@
+import { TextInput, Checkbox } from '../components/Form'
+import Button from '../components/Button'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errText } from '../lib/api'
@@ -15,6 +17,7 @@ import type {
 } from '../types'
 import Icon from '../components/Icon'
 import Select from '../components/Select'
+import { speedFromLog, useBackgroundTask } from '../components/BackgroundTasks'
 import {
   ALL_SCOPE,
   SCOPE_ITEMS,
@@ -80,6 +83,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
   const [expandedMembers, setExpandedMembers] = useState<string[]>([])
   const [scope, setScope] = useState<SyncScope>(ALL_SCOPE)
   const [prep, setPrep] = useState<SyncPrepare | null>(null)
+  const [prepHidden, setPrepHidden] = useState(false)
   const [wheelGate, setWheelGate] = useState<{
     missing: MissingWheel[]
     library: string | null
@@ -190,6 +194,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
   /** 轮询可能重叠，只接受最后一次请求的结果，避免旧状态把新状态盖回去。 */
   const refreshSeq = useRef(0)
   const changesSeq = useRef(0)
+  const terminalSeen = useRef(false)
 
   useEffect(() => {
     if (initialSourceId) setSourceId(initialSourceId)
@@ -239,7 +244,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
   }, [active, refresh])
 
   useEffect(() => {
-    if (!active || !sourceId || (busy !== 'start' && !(prep && !prep.done))) return
+    if (!sourceId || (busy !== 'start' && !(prep && !prep.done))) return
     let alive = true
     const tick = async () => {
       try {
@@ -255,7 +260,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
       alive = false
       window.clearInterval(timer)
     }
-  }, [active, sourceId, busy, prep?.done])
+  }, [sourceId, busy, prep?.done])
 
   useEffect(() => {
     if (!active) return
@@ -359,9 +364,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
   useEffect(() => {
     if (!active || !sourceId || status?.role !== 'leader') return
     void loadChanges(true)
-    const timer = window.setInterval(() => void loadChanges(true), 10000)
     return () => {
-      window.clearInterval(timer)
       changesSeq.current += 1
     }
   }, [active, sourceId, status?.role, loadChanges])
@@ -369,6 +372,10 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
   // 任务进入终态后，基线可能刚更新；下一次轮询刷新变化面板。
   const terminalCount = jobs.filter((j) => j.status === 'success' || j.status === 'partial').length
   useEffect(() => {
+    if (!terminalSeen.current) {
+      terminalSeen.current = true
+      return
+    }
     if (active && sourceId && status?.role === 'leader') void loadChanges(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalCount])
@@ -440,6 +447,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
   const doStart = async (skipMissingWheels = false) => {
     if (!sourceId || !selectedMembers.length || sourceRunning || !SCOPE_ITEMS.some((item) => scope[item.key])) return
     const startedAt = new Date().toISOString()
+    setPrepHidden(false)
     setPrep({
       sourceInstanceId: sourceId,
       phase: '提交准备',
@@ -758,6 +766,28 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
   const scopeAny = SCOPE_ITEMS.some((item) => scope[item.key])
   const scopeSelected = SCOPE_ITEMS.filter((item) => scope[item.key]).length
   const preparing = !!prep && !prep.done
+
+  useBackgroundTask(
+    prep && prepHidden
+      ? {
+          id: 'cluster-prepare',
+          title: prep.cancelled
+            ? '同步准备已取消'
+            : prep.error
+              ? '同步准备失败'
+              : prep.done
+                ? '同步准备完成'
+                : '准备同步',
+          phase: prep.message || prep.phase,
+          state: prep.cancelled ? 'cancelled' : prep.error ? 'failed' : prep.done ? 'ok' : 'running',
+          percent: prep.done ? 100 : prep.percent,
+          log: prep.logs?.[prep.logs.length - 1] ?? prep.message,
+          speed: speedFromLog(prep.logs?.[prep.logs.length - 1] ?? prep.message),
+          kind: 'sync',
+          onOpen: () => setPrepHidden(false),
+        }
+      : null,
+  )
   const timelineJobs = jobs.filter((job) => status?.role !== 'member' || !isWaitingConfirmation(job.status))
   const canStart =
     !!sourceId &&
@@ -826,9 +856,9 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
             <span className={`sync-loading-dot ${loadError ? 'is-error' : ''}`} />
             <strong>{loadError ? '无法连接 Leader' : '正在读取集群状态'}</strong>
             {loadError && (
-              <button className="ghost sm" onClick={() => void refresh()}>
+              <Button className="ghost sm" onClick={() => void refresh()}>
                 重试
-              </button>
+              </Button>
             )}
           </div>
         ) : status.role === 'none' ? (
@@ -852,7 +882,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               >
                 <label className="field">
                   <span>集群名称</span>
-                  <input
+                  <TextInput
                     value={create.name}
                     placeholder="工作室 A"
                     onChange={(e) => setCreate({ ...create, name: e.target.value })}
@@ -861,7 +891,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 <div className="field-row">
                   <label className="field">
                     <span>监听端口</span>
-                    <input
+                    <TextInput
                       value={create.port}
                       inputMode="numeric"
                       onChange={(e) => setCreate({ ...create, port: e.target.value })}
@@ -869,7 +899,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                   </label>
                   <label className="field">
                     <span>集群密码 · 至少 8 位</span>
-                    <input
+                    <TextInput
                       type="password"
                       value={create.password}
                       autoComplete="new-password"
@@ -878,7 +908,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                   </label>
                 </div>
                 <label className="sync-switch">
-                  <input
+                  <Checkbox
                     type="checkbox"
                     checked={create.allowLan}
                     onChange={(e) => setCreate({ ...create, allowLan: e.target.checked })}
@@ -888,7 +918,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                   <small className="hint">局域网为明文 HTTP，仅限可信网络</small>
                 </label>
               </form>
-              <button
+              <Button
                 type="submit"
                 form="sync-create-form"
                 className="primary sync-entry-action"
@@ -896,7 +926,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               >
                 <Icon name="plus" size={15} />
                 {busy === 'create' ? '创建中…' : '创建集群'}
-              </button>
+              </Button>
             </section>
 
             <section className="sync-entry-pane">
@@ -919,7 +949,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 <div className="field-row">
                   <label className="field">
                     <span>Leader 地址</span>
-                    <input
+                    <TextInput
                       value={join.host}
                       placeholder="192.168.1.10"
                       onChange={(e) => setJoin({ ...join, host: e.target.value })}
@@ -927,7 +957,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                   </label>
                   <label className="field">
                     <span>端口</span>
-                    <input
+                    <TextInput
                       value={join.port}
                       inputMode="numeric"
                       onChange={(e) => setJoin({ ...join, port: e.target.value })}
@@ -936,7 +966,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 </div>
                 <label className="field">
                   <span>集群密码</span>
-                  <input
+                  <TextInput
                     type="password"
                     value={join.password}
                     autoComplete="current-password"
@@ -945,14 +975,14 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 </label>
                 <label className="field">
                   <span>成员名</span>
-                  <input
+                  <TextInput
                     value={join.memberName}
                     placeholder="留空使用计算机名"
                     onChange={(e) => setJoin({ ...join, memberName: e.target.value })}
                   />
                 </label>
               </form>
-              <button
+              <Button
                 type="submit"
                 form="sync-join-form"
                 className="primary sync-entry-action"
@@ -960,7 +990,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               >
                 <Icon name="download" size={15} />
                 {busy === 'join' ? '连接中…' : '加入集群'}
-              </button>
+              </Button>
             </section>
           </div>
         ) : status.role === 'leader' && status.cluster ? (
@@ -990,7 +1020,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               <div className="sync-head-center">
                 <div className="sync-addresses">
                   {status.cluster.addresses.map((address) => (
-                    <button
+                    <Button
                       className="sync-address"
                       key={address}
                       onClick={() => void copy(address)}
@@ -998,24 +1028,24 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                     >
                       <Icon name="copy" size={12} />
                       {address}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
               <div className="sync-head-actions">
-                <button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
+                <Button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
                   <Icon name="refresh" size={13} />
                   刷新
-                </button>
-                <button className="ghost sm" onClick={() => void toggleLan()} disabled={!!busy}>
+                </Button>
+                <Button className="ghost sm" onClick={() => void toggleLan()} disabled={!!busy}>
                   <Icon name="globe" size={13} />
                   {confirmAction === 'lan'
                     ? '确认开放？'
                     : status.cluster.allowLan
                       ? '改为仅本机'
                       : '开放局域网'}
-                </button>
-                <button
+                </Button>
+                <Button
                   className="ghost sm"
                   onClick={() => {
                     setConfirmAction('')
@@ -1027,7 +1057,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 >
                   <Icon name="close" size={13} />
                   删除集群
-                </button>
+                </Button>
               </div>
             </header>
 
@@ -1035,9 +1065,9 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               <div className="sync-alert">
                 <Icon name="alert" size={15} />
                 <span>{statusError}</span>
-                <button className="ghost sm" onClick={() => void retryServer()} disabled={!!busy}>
+                <Button className="ghost sm" onClick={() => void retryServer()} disabled={!!busy}>
                   重试启动
-                </button>
+                </Button>
               </div>
             )}
 
@@ -1045,18 +1075,24 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               <div className="sync-alert is-warn">
                 <Icon name="globe" size={15} />
                 <span>仅本机监听，其他成员不可达</span>
-                <button className="ghost sm" onClick={() => void toggleLan()} disabled={!!busy}>
+                <Button className="ghost sm" onClick={() => void toggleLan()} disabled={!!busy}>
                   开放局域网
-                </button>
+                </Button>
               </div>
             )}
 
-            {prep && (
+            {prep && !prepHidden && (
               <PreparePanel
                 prep={prep}
                 sourceName={sourceLocal?.name ?? sourceView?.name ?? sourceId}
                 onCancel={() => void cancelPrepare()}
-                onClose={() => void closePrepare()}
+                onClose={() => {
+                  if (!prep.done && !prep.error && !prep.cancelled) {
+                    setPrepHidden(true)
+                    return
+                  }
+                  void closePrepare()
+                }}
               />
             )}
 
@@ -1075,14 +1111,14 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                       {stateText(sourceState)}
                     </span>
                     <div className="spacer" />
-                    <button
+                    <Button
                       className="ghost sm"
                       onClick={() => setChangesOpen(true)}
                       disabled={!changes || changesBusy}
                     >
                       <Icon name="diagnostics" size={13} />
                       {changesBusy ? '扫描中…' : '变化明细'}
-                    </button>
+                    </Button>
                   </header>
                   {locals.length ? (
                     <Select
@@ -1224,26 +1260,26 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 )}
               </div>
               <div className="sync-head-actions">
-                <button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
+                <Button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
                   <Icon name="refresh" size={13} />
                   刷新
-                </button>
-                <button
+                </Button>
+                <Button
                   className="ghost sm"
                   onClick={() => setCompareOpen(true)}
                   disabled={!compareSources.length || !compareTargets.length}
                 >
                   <Icon name="versions" size={13} />
                   对比
-                </button>
-                <button
+                </Button>
+                <Button
                   className={confirmAction === 'leave' ? 'danger sm' : 'ghost sm'}
                   onClick={() => void doLeave()}
                   disabled={!!busy}
                 >
                   <Icon name="close" size={13} />
                   {confirmAction === 'leave' ? '确认退出？' : '退出集群'}
-                </button>
+                </Button>
               </div>
             </header>
 
@@ -1302,9 +1338,9 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
             </span>
             <strong>集群状态异常</strong>
             {statusError && <span className="sync-error-text">{statusError}</span>}
-            <button className="ghost sm" onClick={onBack}>
+            <Button className="ghost sm" onClick={onBack}>
               返回首页
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -1332,14 +1368,14 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                   源实例运行中
                 </span>
               )}
-              <button
+              <Button
                 className="primary sync-send"
                 disabled={!canStart}
                 onClick={() => void doStart()}
               >
                 <Icon name="send" size={15} />
                 {busy === 'start' || preparing ? '正在准备…' : '发送同步请求'}
-              </button>
+              </Button>
             </div>
           ) : status.role === 'member' && status.member ? (
             <div className="sync-sendbar">
@@ -1350,19 +1386,19 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 </span>
               </div>
               <div className="spacer" />
-              <button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
+              <Button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
                 <Icon name="refresh" size={13} />
                 刷新
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="sync-sendbar">
               <span className="sync-sendbar-names">未加入集群</span>
               <div className="spacer" />
-              <button className="ghost sm" onClick={() => void refresh()}>
+              <Button className="ghost sm" onClick={() => void refresh()}>
                 <Icon name="refresh" size={13} />
                 刷新
-              </button>
+              </Button>
             </div>
           ),
           bottomSlot,
@@ -1404,14 +1440,14 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
             ))}
           </ul>
           <div className="sync-modal-actions">
-            <button
+            <Button
               className="ghost"
               onClick={() => setWheelGate(null)}
               disabled={busy === 'start'}
             >
               取消
-            </button>
-            <button
+            </Button>
+            <Button
               className="danger"
               onClick={() => {
                 setWheelGate(null)
@@ -1421,10 +1457,10 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               title="这些依赖不会安装到目标端"
             >
               跳过
-            </button>
-            <button className="primary" onClick={retryWheelGate} disabled={busy === 'start'}>
+            </Button>
+            <Button className="primary" onClick={retryWheelGate} disabled={busy === 'start'}>
               {busy === 'start' ? '检查中…' : '继续'}
-            </button>
+            </Button>
           </div>
         </SyncDialog>
       )}
@@ -1439,10 +1475,10 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 </span>
                 {changes.lastSyncAt && <span>{dateClock(changes.lastSyncAt)}</span>}
                 <div className="spacer" />
-                <button className="ghost sm" onClick={() => void loadChanges(false)} disabled={changesBusy}>
+                <Button className="ghost sm" onClick={() => void loadChanges(false)} disabled={changesBusy}>
                   <Icon name="refresh" size={13} />
                   {changesBusy ? '扫描中…' : '刷新'}
-                </button>
+                </Button>
               </div>
               <DiffSummary diff={changes.diff} />
               <DiffDetails diff={changes.diff} />
@@ -1495,7 +1531,7 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
           >
             <label className="field">
               <span>集群密码</span>
-              <input
+              <TextInput
                 type="password"
                 autoFocus
                 autoComplete="current-password"
@@ -1513,21 +1549,21 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               </div>
             )}
             <div className="sync-modal-actions">
-              <button
+              <Button
                 type="button"
                 className="ghost"
                 disabled={busy === 'delete'}
                 onClick={() => setDeleteOpen(false)}
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
                 className="danger"
                 disabled={busy === 'delete' || !deletePassword}
               >
                 {busy === 'delete' ? '删除中…' : '删除集群'}
-              </button>
+              </Button>
             </div>
           </form>
         </SyncDialog>

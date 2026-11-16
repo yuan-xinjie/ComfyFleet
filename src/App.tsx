@@ -1,6 +1,13 @@
+import Button from './components/Button'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, errText } from './lib/api'
-import type { AppInfo, EnvPlan, InstanceConfig, UiOpts } from './types'
+import type {
+  AppInfo,
+  EnvPlan,
+  InstanceConfig,
+  IslandIdleShape,
+  UiOpts,
+} from './types'
 import { TABS, type InstTab } from './lib/state'
 import Cluster from './views/Cluster'
 import Home from './views/Home'
@@ -8,8 +15,26 @@ import InstanceDetail from './views/InstanceDetail'
 import TopbarAction from './components/TopbarAction'
 import ThemeToggle from './components/ThemeToggle'
 import WindowControls from './components/WindowControls'
+import TaskBar, {
+  type IslandAction,
+  type TaskBarIdleContent,
+  type TaskBarIdleMode,
+  type TaskBarNotice,
+} from './components/TaskBar'
+import {
+  BackgroundTasksProvider,
+  useTask,
+  type BackgroundTask,
+} from './components/BackgroundTasks'
 import SettingsView, { type SettingsActions, type SettingsSection } from './views/Settings'
 import Icon from './components/Icon'
+import {
+  ISLAND_BOTTOM_GAP_DEFAULT,
+  ISLAND_SHAPE_ACTION_GAP_DEFAULT,
+  normalizeIslandShape,
+} from './components/IslandShape'
+import Modal from './components/Modal'
+import { PopPresence } from './components/PopPresence'
 import { applyTheme, type ThemeMode } from './lib/theme'
 import { syncTrayIcon } from './lib/tray'
 
@@ -32,12 +57,172 @@ function Page({ active, children }: { active: boolean; children: ReactNode }) {
   )
 }
 
+type RunStage = 'idle' | 'running' | 'ok' | 'failed' | 'cancelled'
+
+/**
+ * 把实例的启动过程投到全局任务岛。
+ * 状态由 App 的实例轮询驱动：starting → 启动中，running / error / stopped → 结束态。
+ */
+function InstanceRunTask({
+  inst,
+  onOpen,
+  lingerMs,
+}: {
+  inst: InstanceConfig
+  onOpen: (id: string) => void
+  lingerMs: number
+}) {
+  const [stage, setStage] = useState<RunStage>(
+    inst.kind === 'local' && inst.state === 'starting' ? 'running' : 'idle',
+  )
+  const prev = useRef({ state: inst.state, lastStartedAt: inst.lastStartedAt })
+  const settleTimer = useRef<number | null>(null)
+  const runShownAt = useRef<number | null>(null)
+  const stageRef = useRef<RunStage>(stage)
+  stageRef.current = stage
+
+  useEffect(() => {
+    return () => {
+      if (settleTimer.current !== null) window.clearTimeout(settleTimer.current)
+    }
+  }, [])
+
+  // 启动取消不是错误；短暂显示后让任务岛回到空闲状态，不把取消态一直挂着。
+  useEffect(() => {
+    if (stage !== 'cancelled') return
+    const timer = window.setTimeout(() => setStage('idle'), lingerMs)
+    return () => window.clearTimeout(timer)
+  }, [stage, lingerMs])
+
+  useEffect(() => {
+    const before = prev.current
+    prev.current = { state: inst.state, lastStartedAt: inst.lastStartedAt }
+    if (inst.kind !== 'local') return
+
+    const finish = (next: RunStage) => {
+      if (settleTimer.current !== null) {
+        window.clearTimeout(settleTimer.current)
+        settleTimer.current = null
+      }
+      if (next !== 'ok') {
+        setStage(next)
+        return
+      }
+      // 启动太快时也把发射动效完整放完，不直接跳到完成。
+      const shown = runShownAt.current
+      const delay = shown === null ? 0 : Math.max(0, 900 - (Date.now() - shown))
+      if (delay === 0) {
+        setStage('ok')
+        return
+      }
+      settleTimer.current = window.setTimeout(() => {
+        settleTimer.current = null
+        setStage('ok')
+      }, delay)
+    }
+
+    // 状态可能在没有被 1.2 s 轮询看到的间隙里直接冲到 running；按启动时间补一条。
+    if (settleTimer.current !== null && inst.state !== 'running') {
+      window.clearTimeout(settleTimer.current)
+      settleTimer.current = null
+    }
+
+    if (inst.state === 'starting') {
+      if (before.state !== 'starting') runShownAt.current = Date.now()
+      setStage('running')
+      return
+    }
+    // 停止过程可能被轮询看到（starting → stopping → stopped），不能只在
+    // “刚好从 starting 跳到终态”时收尾，否则任务会一直停在启动中。
+    if (
+      stageRef.current === 'running' &&
+      (inst.state === 'stopping' || inst.state === 'stopped')
+    ) {
+      finish('cancelled')
+      return
+    }
+    if (stageRef.current === 'running' && inst.state === 'error') {
+      finish('failed')
+      return
+    }
+    if (before.state === 'starting') {
+      if (inst.state === 'running') finish('ok')
+      else if (inst.state === 'error') finish('failed')
+      else if (inst.state === 'stopped') finish('cancelled')
+      return
+    }
+    if (before.lastStartedAt !== inst.lastStartedAt && inst.state === 'error') {
+      setStage('failed')
+      return
+    }
+    if (inst.state === 'running' && before.lastStartedAt !== inst.lastStartedAt) {
+      runShownAt.current = Date.now()
+      setStage('running')
+      finish('ok')
+    }
+  }, [inst.kind, inst.state, inst.lastStartedAt])
+
+  const state: BackgroundTask['state'] | null =
+    stage === 'running' || stage === 'ok' || stage === 'failed' || stage === 'cancelled'
+      ? stage
+      : null
+  const title =
+    stage === 'running'
+      ? `正在启动 ${inst.name}`
+      : stage === 'ok'
+        ? `已启动 ${inst.name}`
+        : stage === 'failed'
+          ? `启动失败 ${inst.name}`
+          : stage === 'cancelled'
+            ? `启动已取消 ${inst.name}`
+            : ''
+  const phase =
+    stage === 'running'
+      ? '等待就绪'
+      : stage === 'ok'
+        ? '已就绪'
+        : stage === 'failed'
+          ? '启动失败'
+          : stage === 'cancelled'
+            ? '已取消'
+            : ''
+  const log =
+    stage === 'running'
+      ? '等待 ComfyUI 健康检查'
+      : stage === 'ok'
+        ? 'ComfyUI 已就绪'
+        : stage === 'failed'
+          ? '启动未通过健康检查'
+          : stage === 'cancelled'
+            ? '启动已取消'
+            : ''
+
+  useTask(
+    stage !== 'idle' && state
+      ? {
+          id: `start-${inst.id}`,
+          title,
+          phase,
+          state,
+          percent: stage === 'ok' ? 100 : undefined,
+          detail: `端口 ${inst.server.port}`,
+          log,
+          kind: 'start',
+          onOpen: () => onOpen(inst.id),
+        }
+      : null,
+  )
+
+  return null
+}
+
 export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [plan, setPlan] = useState<EnvPlan | null>(null)
   const [instances, setInstances] = useState<InstanceConfig[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tab, setTab] = useState<InstTab>('overview')
+  const [consoleOpen, setConsoleOpen] = useState(false)
   const [screen, setScreen] = useState<Screen>('home')
   const [navDir, setNavDir] = useState<NavDir>('none')
   const [settingsFrom, setSettingsFrom] = useState<Exclude<Screen, 'global'>>('home')
@@ -46,15 +231,34 @@ export default function App() {
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark')
   const [themeBusy, setThemeBusy] = useState(false)
+  const [taskBarIdle, setTaskBarIdle] = useState<TaskBarIdleMode>('auto')
+  const [noticeSeconds, setNoticeSeconds] = useState(3)
+  const [islandIdleContent, setIslandIdleContent] = useState<TaskBarIdleContent>('animation')
+  const [islandIdleShape, setIslandIdleShape] = useState<IslandIdleShape>('chevrons')
+  const [islandWidth, setIslandWidth] = useState(84)
+  const [islandAnimationSpeed, setIslandAnimationSpeed] = useState(100)
+  const [islandShapeInset, setIslandShapeInset] = useState(11)
+  const [islandShapeActionGap, setIslandShapeActionGap] = useState(
+    ISLAND_SHAPE_ACTION_GAP_DEFAULT,
+  )
+  const [islandBottomGap, setIslandBottomGap] = useState(ISLAND_BOTTOM_GAP_DEFAULT)
+  const [islandGlow, setIslandGlow] = useState(true)
+  const [islandGlowColor, setIslandGlowColor] = useState('#5b8dff')
+  const [islandGlowRange, setIslandGlowRange] = useState(24)
+  const [islandIdleText, setIslandIdleText] = useState('控制台')
   const settingsActions = useRef<SettingsActions | null>(null)
   const [confirmLeave, setConfirmLeave] = useState(false)
-  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  const [notice, setNotice] = useState<TaskBarNotice | null>(null)
+  const [islandActions, setIslandActions] = useState<IslandAction[]>([])
+  const registerIslandActions = useCallback((next: IslandAction[] | null) => {
+    setIslandActions(next ?? [])
+  }, [])
   /** 启动自检发现的缺失运行时（uv / Git / git-lfs），非空时显示顶部提示条 */
   const [runtimeIssues, setRuntimeIssues] = useState<string[]>([])
   const [runtimeBannerClosed, setRuntimeBannerClosed] = useState(false)
   const [focusSection, setFocusSection] = useState<SettingsSection | null>(null)
 
-  const notify = useCallback((kind: 'ok' | 'err', msg: string) => setToast({ kind, msg }), [])
+  const notify = useCallback((kind: 'ok' | 'err', msg: string) => setNotice({ kind, msg }), [])
 
   // 设置页把保存/放弃/重读句柄登记给底栏；底栏常驻，不随 dirty 出现或消失
   const registerSettingsActions = useCallback((actions: SettingsActions | null) => {
@@ -93,6 +297,19 @@ export default function App() {
     api.settingsGet().then((s) => {
       applyTheme(s.ui)
       setThemeMode(s.ui.theme)
+      setTaskBarIdle(s.ui.taskBarIdle)
+      setNoticeSeconds(s.ui.noticeSeconds)
+      setIslandIdleContent(s.ui.islandIdleContent)
+      setIslandIdleShape(normalizeIslandShape(s.ui.islandIdleShape))
+      setIslandWidth(s.ui.islandWidth)
+      setIslandAnimationSpeed(s.ui.islandAnimationSpeed)
+      setIslandShapeInset(s.ui.islandShapeInset)
+      setIslandShapeActionGap(s.ui.islandShapeActionGap)
+      setIslandBottomGap(s.ui.islandBottomGap)
+      setIslandGlow(s.ui.islandGlow)
+      setIslandGlowColor(s.ui.islandGlowColor)
+      setIslandGlowRange(s.ui.islandGlowRange)
+      setIslandIdleText(s.ui.islandIdleText)
       void syncTrayIcon().catch((e) => console.warn('tray icon', e))
     }).catch(() => {})
   }, [])
@@ -106,6 +323,19 @@ export default function App() {
       const saved = await api.settingsSetTheme(themeMode === 'light' ? 'dark' : 'light')
       applyTheme(saved.ui)
       setThemeMode(saved.ui.theme)
+      setTaskBarIdle(saved.ui.taskBarIdle)
+      setNoticeSeconds(saved.ui.noticeSeconds)
+      setIslandIdleContent(saved.ui.islandIdleContent)
+      setIslandIdleShape(normalizeIslandShape(saved.ui.islandIdleShape))
+      setIslandWidth(saved.ui.islandWidth)
+      setIslandAnimationSpeed(saved.ui.islandAnimationSpeed)
+      setIslandShapeInset(saved.ui.islandShapeInset)
+      setIslandShapeActionGap(saved.ui.islandShapeActionGap)
+      setIslandBottomGap(saved.ui.islandBottomGap)
+      setIslandGlow(saved.ui.islandGlow)
+      setIslandGlowColor(saved.ui.islandGlowColor)
+      setIslandGlowRange(saved.ui.islandGlowRange)
+      setIslandIdleText(saved.ui.islandIdleText)
       // 设置页可能正拿着一份旧草稿；不同步的话，点保存会把这次切换覆盖掉。
       settingsActions.current?.syncTheme(saved.ui.theme)
     } catch (e) {
@@ -119,6 +349,19 @@ export default function App() {
   const previewTheme = useCallback((ui: UiOpts) => {
     applyTheme(ui)
     setThemeMode(ui.theme)
+    setTaskBarIdle(ui.taskBarIdle)
+    setNoticeSeconds(ui.noticeSeconds)
+    setIslandIdleContent(ui.islandIdleContent)
+    setIslandIdleShape(normalizeIslandShape(ui.islandIdleShape))
+    setIslandWidth(ui.islandWidth)
+    setIslandAnimationSpeed(ui.islandAnimationSpeed)
+    setIslandShapeInset(ui.islandShapeInset)
+    setIslandShapeActionGap(ui.islandShapeActionGap)
+    setIslandBottomGap(ui.islandBottomGap)
+    setIslandGlow(ui.islandGlow)
+    setIslandGlowColor(ui.islandGlowColor)
+    setIslandGlowRange(ui.islandGlowRange)
+    setIslandIdleText(ui.islandIdleText)
   }, [])
 
   const reload = useCallback(async () => {
@@ -145,29 +388,35 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [moving, reload])
 
-  // 状态变化只提醒一次：就绪 / 失败 / 被停掉
+  // 启停状态由灵动岛和实例任务自己展示；这里只额外提醒失败。
   const prevStates = useRef<Record<string, string>>({})
   useEffect(() => {
     const prev = prevStates.current
     for (const inst of instances) {
       const before = prev[inst.id]
-      if (before && before !== inst.state) {
-        if (inst.state === 'running') notify('ok', `「${inst.name}」已就绪`)
-        else if (inst.state === 'error') notify('err', `「${inst.name}」启动失败，去看日志或诊断`)
-        else if (before === 'running' && inst.state === 'stopped') notify('ok', `「${inst.name}」已停止`)
+      if (before && before !== inst.state && inst.state === 'error') {
+        notify('err', `「${inst.name}」启动失败，去看日志或诊断`)
       }
       prev[inst.id] = inst.state
     }
   }, [instances, notify])
 
   useEffect(() => {
-    if (!toast) return
-    const t = window.setTimeout(() => setToast(null), 3200)
+    if (!notice) return
+    const t = window.setTimeout(() => setNotice(null), noticeSeconds * 1000)
     return () => window.clearTimeout(t)
-  }, [toast])
+  }, [notice, noticeSeconds])
 
   const selected = useMemo(() => instances.find((i) => i.id === selectedId) ?? null, [instances, selectedId])
   const [detailDirty, setDetailDirty] = useState(false)
+
+  useEffect(() => {
+    setConsoleOpen(false)
+  }, [selectedId])
+
+  useEffect(() => {
+    if (screen !== 'instance' || tab === 'console') setConsoleOpen(false)
+  }, [screen, tab])
 
   const goHome = useCallback(() => {
     // 保留 selectedId 和页签：实例页只是隐藏，回来时连同标签页状态一起还在。
@@ -206,6 +455,15 @@ export default function App() {
       setScreen('instance')
     },
     [detailDirty, selectedId],
+  )
+
+  const openStartTask = useCallback(
+    (id: string) => {
+      select(id)
+      setTab('overview')
+      setConsoleOpen(true)
+    },
+    [select],
   )
 
   const openSettings = useCallback(() => {
@@ -250,7 +508,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setToast(null)
+        setNotice(null)
         setConfirmLeave(false)
         return
       }
@@ -279,7 +537,7 @@ export default function App() {
             安装环境、拉取 ComfyUI 与节点都要用到这些组件；到 设置 → 运行 里按需下载，不点就不会联网。
           </div>
         </div>
-        <button
+        <Button
           className="ghost sm"
           onClick={() => {
             setFocusSection('runtime')
@@ -287,33 +545,34 @@ export default function App() {
           }}
         >
           去下载
-        </button>
-        <button
+        </Button>
+        <Button
           className="icon-btn"
           onClick={() => setRuntimeBannerClosed(true)}
           aria-label="关闭提示"
           title="本次不再提示"
         >
           ×
-        </button>
+        </Button>
       </div>
     ) : null
 
   return (
+    <BackgroundTasksProvider successLingerMs={noticeSeconds * 1000}>
     <div className="shell">
       <div className="main" data-nav-dir={navDir}>
         <Page active={screen === 'global'}>
           <>
             <header className="topbar" data-tauri-drag-region="deep">
               <div className="topbar-left">
-                <button
+                <Button
                   className="icon-btn"
                   onClick={requestCloseSettings}
                   title="返回"
                   aria-label="返回"
                 >
                   <Icon name="back" size={16} />
-                </button>
+                </Button>
               </div>
               <div className="topbar-heading" title="全局设置">
                 全局设置
@@ -337,7 +596,7 @@ export default function App() {
             </div>
             <footer className="bottombar">
               <div className="bottombar-inner">
-                <button
+                <Button
                   className="icon-btn"
                   onClick={() => settingsActions.current?.reload()}
                   disabled={settingsDirty || settingsBusy}
@@ -345,8 +604,8 @@ export default function App() {
                   aria-label="重新加载设置"
                 >
                   <Icon name="refresh" size={15} />
-                </button>
-                <button
+                </Button>
+                <Button
                   className="icon-btn"
                   onClick={openDataDir}
                   disabled={!info}
@@ -354,27 +613,31 @@ export default function App() {
                   aria-label="打开数据目录"
                 >
                   <Icon name="folder" size={15} />
-                </button>
+                </Button>
                 <div className="spacer" />
                 <span className={`badge ${settingsDirty ? 'warn' : 'ghost'}`}>
                   {settingsBusy ? '保存中…' : settingsDirty ? '未保存' : '已保存'}
                 </span>
-                <button
-                  className="ghost"
-                  onClick={() => settingsActions.current?.discard()}
-                  disabled={!settingsDirty || settingsBusy}
-                >
-                  放弃
-                </button>
-                <button
-                  className="primary"
-                  onClick={() => void settingsActions.current?.save()}
-                  disabled={!settingsDirty || settingsBusy}
-                  title="保存设置（Ctrl+S）"
-                >
-                  <Icon name="check" size={14} />
-                  {settingsBusy ? '保存中…' : '保存设置'}
-                </button>
+                <PopPresence show={settingsDirty && !settingsBusy}>
+                  <Button
+                    className="ghost"
+                    onClick={() => settingsActions.current?.discard()}
+                    disabled={!settingsDirty || settingsBusy}
+                  >
+                    放弃
+                  </Button>
+                </PopPresence>
+                <PopPresence show={settingsDirty && !settingsBusy}>
+                  <Button
+                    className="primary"
+                    onClick={() => void settingsActions.current?.save()}
+                    disabled={!settingsDirty || settingsBusy}
+                    title="保存设置（Ctrl+S）"
+                  >
+                    <Icon name="check" size={14} />
+                    {settingsBusy ? '保存中…' : '保存设置'}
+                  </Button>
+                </PopPresence>
               </div>
             </footer>
           </>
@@ -384,14 +647,14 @@ export default function App() {
           <>
             <header className="topbar" data-tauri-drag-region="deep">
               <div className="topbar-left">
-                <button
+                <Button
                   className="icon-btn"
                   onClick={goHome}
                   title="返回"
                   aria-label="返回"
                 >
                   <Icon name="back" size={16} />
-                </button>
+                </Button>
               </div>
               <div className="topbar-heading" title="局域网同步">
                 局域网同步
@@ -447,6 +710,9 @@ export default function App() {
               theme={themeMode}
               onToggleTheme={() => void toggleTheme()}
               themeBusy={themeBusy}
+              consoleOpen={consoleOpen}
+              onConsoleOpenChange={setConsoleOpen}
+              onIslandActions={registerIslandActions}
             />
           </Page>
         )}
@@ -519,7 +785,7 @@ export default function App() {
                   </span>
                 )}
                 <span className="spacer" />
-                <button
+                <Button
                   className="icon-btn"
                   onClick={openDataDir}
                   disabled={!info}
@@ -527,7 +793,7 @@ export default function App() {
                   aria-label="打开数据目录"
                 >
                   <Icon name="folder" size={15} />
-                </button>
+                </Button>
                 {info && <span className="home-status-version mono">v{info.version}</span>}
               </div>
             </footer>
@@ -535,26 +801,54 @@ export default function App() {
         </Page>
       </div>
 
+      {instances.map((inst) => (
+        <InstanceRunTask
+          key={inst.id}
+          inst={inst}
+          onOpen={openStartTask}
+          lingerMs={noticeSeconds * 1000}
+        />
+      ))}
+
+      <TaskBar
+        idleMode={taskBarIdle}
+        idleContent={islandIdleContent}
+        idleShape={islandIdleShape}
+        idleMinWidth={islandWidth}
+        animationSpeed={islandAnimationSpeed}
+        shapeInset={islandShapeInset}
+        shapeActionGap={islandShapeActionGap}
+        bottomGap={islandBottomGap}
+        glow={islandGlow}
+        glowColor={islandGlowColor}
+        glowRange={islandGlowRange}
+        idleText={islandIdleText}
+        notice={notice}
+        onNoticeDismiss={() => setNotice(null)}
+        concealed={consoleOpen}
+        actions={islandActions}
+        idle={
+            screen === 'instance' && selected && tab !== 'console'
+              ? { onOpen: () => setConsoleOpen(true) }
+              : null
+        }
+      />
+
       {confirmLeave && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setConfirmLeave(false)
-          }}
+        <Modal
+          className="confirm"
+          labelledBy="leave-title"
+          onClose={() => setConfirmLeave(false)}
         >
-          <div className="modal confirm" role="dialog" aria-modal="true" aria-labelledby="leave-title">
             <div className="modal-head">
               <h2 id="leave-title">放弃未保存的修改？</h2>
             </div>
-            <div className="modal-body">
-              <p className="hint">全局设置还没保存，返回会丢掉这次改动。可以先取消，回去点「保存设置」。</p>
-            </div>
             <div className="modal-foot">
               <div className="spacer" />
-              <button className="ghost" onClick={() => setConfirmLeave(false)}>
+              <Button className="ghost" onClick={() => setConfirmLeave(false)}>
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 className="danger"
                 onClick={() => {
                   setConfirmLeave(false)
@@ -564,18 +858,12 @@ export default function App() {
                 }}
               >
                 放弃并返回
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
-      {toast && (
-        <div className={`toast ${toast.kind}`} role="status">
-          <span className="dot" />
-          {toast.msg}
-        </div>
-      )}
     </div>
+    </BackgroundTasksProvider>
   )
 }

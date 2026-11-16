@@ -847,6 +847,7 @@ pub fn instance_create(req: CreateInstanceReq) -> Result<InstanceConfig, AppErro
         remote: None,
         imported: false,
         state: InstanceState::Uninitialized,
+        last_error: None,
         created_at: chrono::Utc::now().to_rfc3339(),
         last_started_at: None,
     };
@@ -982,6 +983,7 @@ pub fn instance_remote_save(req: RemoteInstanceReq) -> Result<InstanceConfig, Ap
                 remote: Some(target),
                 imported: true,
                 state: InstanceState::Ready,
+                last_error: None,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 last_started_at: None,
             }
@@ -1989,6 +1991,7 @@ fn instance_import_impl(
         remote: None,
         imported: true,
         state,
+        last_error: None,
         created_at: chrono::Utc::now().to_rfc3339(),
         last_started_at: None,
     };
@@ -2388,10 +2391,10 @@ pub fn apply_update(
     if req_channel != cfg.comfy.channel && comfy_installed {
         return Err(AppError::new(
             "CHANNEL_NEEDS_SWITCH",
-            "已装好的实例请到「版本」页切换稳定特/ 开发版（会 checkout 并重装依赖），不要在这里改通道",
+            "已装好的实例请到「版本」页切换稳定版/开发版（会 checkout 并重装依赖），不要在这里改通道",
         ));
     }
-    // 通道切换必须同步引用，否则会出现「dev 通道 + 稳定特tag」这种自相矛盾的记录
+    // 通道切换必须同步引用，否则会出现「dev 通道 + 稳定版 tag」这种自相矛盾的记录
     if cfg.comfy.channel != req_channel {
         cfg.comfy.reference = if req_channel == "dev" {
             "master".to_string()
@@ -2459,6 +2462,7 @@ pub fn apply_update(
         // 从「已有环境」切回「自建venv」：没有 .venv 就得重新装
         if crate::runtime::find_venv(Path::new(&cfg.root_dir)).is_none() {
             cfg.state = InstanceState::Uninitialized;
+            cfg.last_error = None;
         }
     }
     // 指向的环境可用、本体也在：直接可用，不用再走一遍安装
@@ -2470,6 +2474,7 @@ pub fn apply_update(
             .exists()
     {
         cfg.state = InstanceState::Ready;
+        cfg.last_error = None;
     }
 
     cfg.overrides = InstanceOverrides {
@@ -2495,6 +2500,7 @@ pub fn apply_update(
         }
         // 引擎/Python 变了，旧环境即使目录还在也不能算 Ready（torch 仍是旧的）。
         cfg.state = InstanceState::Uninitialized;
+        cfg.last_error = None;
     }
 
     Ok(cfg)
@@ -2969,6 +2975,7 @@ mod tests {
             remote: None,
             imported: false,
             state: InstanceState::Ready,
+            last_error: None,
             created_at: "2026-10-28T00:00:00Z".to_string(),
             last_started_at: None,
         }

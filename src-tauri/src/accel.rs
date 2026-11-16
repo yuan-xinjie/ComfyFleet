@@ -685,10 +685,7 @@ fn download_and_normalize(
     // 先给前端一条依赖标题，后面的真实下载百分比会原样更新这一行。
     let label = raw_name.split('-').next().unwrap_or("wheel").to_string();
     let title = if total > 0 {
-        format!(
-            "Downloading {label} ({})",
-            crate::sync::human_bytes(total)
-        )
+        format!("Downloading {label} ({})", crate::sync::human_bytes(total))
     } else {
         format!("Downloading {label}")
     };

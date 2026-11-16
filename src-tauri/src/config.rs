@@ -469,6 +469,37 @@ pub const DEFAULT_LIGHT_BG_BOTTOM: &str = "#e3e9f4";
 pub const DEFAULT_LIGHT_CARD_COLOR: &str = "#ffffff";
 pub const DEFAULT_CARD_TRANSPARENCY: u8 = 12;
 pub const MAX_CARD_TRANSPARENCY: u8 = 80;
+pub const DEFAULT_TASK_BAR_IDLE: &str = "auto";
+pub const DEFAULT_NOTICE_SECONDS: u32 = 3;
+pub const MIN_NOTICE_SECONDS: u32 = 1;
+pub const MAX_NOTICE_SECONDS: u32 = 5;
+pub const DEFAULT_ISLAND_IDLE_CONTENT: &str = "animation";
+pub const DEFAULT_ISLAND_IDLE_SHAPE: &str = "dots";
+pub const DEFAULT_ISLAND_WIDTH: u8 = 84;
+pub const MIN_ISLAND_WIDTH: u8 = 64;
+pub const MAX_ISLAND_WIDTH: u8 = 200;
+pub const DEFAULT_ISLAND_ANIMATION_SPEED: u8 = 100;
+pub const MIN_ISLAND_ANIMATION_SPEED: u8 = 50;
+pub const MAX_ISLAND_ANIMATION_SPEED: u8 = 200;
+pub const DEFAULT_ISLAND_SHAPE_INSET: u8 = 11;
+pub const MIN_ISLAND_SHAPE_INSET: u8 = 4;
+pub const MAX_ISLAND_SHAPE_INSET: u8 = 20;
+pub const DEFAULT_ISLAND_SHAPE_ACTION_GAP: u8 = 15;
+pub const MIN_ISLAND_SHAPE_ACTION_GAP: u8 = 0;
+pub const MAX_ISLAND_SHAPE_ACTION_GAP: u8 = 30;
+pub const DEFAULT_ISLAND_BOTTOM_GAP: u8 = 56;
+pub const MIN_ISLAND_BOTTOM_GAP: u8 = 8;
+pub const MAX_ISLAND_BOTTOM_GAP: u8 = 160;
+pub const DEFAULT_ISLAND_GLOW: bool = true;
+pub const DEFAULT_ISLAND_GLOW_COLOR: &str = "#5b8dff";
+pub const DEFAULT_ISLAND_GLOW_RANGE: u8 = 24;
+pub const MIN_ISLAND_GLOW_RANGE: u8 = 8;
+pub const MAX_ISLAND_GLOW_RANGE: u8 = 80;
+pub const MAX_ISLAND_IDLE_TEXT_CHARS: usize = 24;
+
+fn default_notice_seconds() -> u32 {
+    DEFAULT_NOTICE_SECONDS
+}
 
 pub fn default_dark_palette() -> ThemePalette {
     ThemePalette {
@@ -507,6 +538,33 @@ pub struct UiOpts {
     pub light: ThemePalette,
     /// 卡片透明度（0–100%）：0 为不透明，数字越大越透。
     pub card_transparency: u8,
+    /// 空闲任务条：auto = 自动隐藏（悬浮底部时出现），always = 常驻。
+    pub task_bar_idle: String,
+    /// 成功任务与操作通知的停留秒数（1–5）。
+    #[serde(default = "default_notice_seconds")]
+    pub notice_seconds: u32,
+    /// 无任务时的内容：animation = 图标动画，time = 时间，custom = 自定义文字。
+    pub island_idle_content: String,
+    /// 无任务动画的形态：dots = 圆点，chevrons = 箭头，targets = 圆环。
+    pub island_idle_shape: String,
+    /// 空闲胶囊宽度（64–200px）。
+    pub island_width: u8,
+    /// 空闲动画速度（50–200%）。
+    pub island_animation_speed: u8,
+    /// 默认形态与胶囊两侧的距离（4–20px）。
+    pub island_shape_inset: u8,
+    /// 两侧形态与操作按钮的间距（0–30px）。
+    pub island_shape_action_gap: u8,
+    /// 灵动岛底边距离窗口底部的距离（8–160px）。
+    pub island_bottom_gap: u8,
+    /// 外发光。
+    pub island_glow: bool,
+    /// 默认发光颜色。
+    pub island_glow_color: String,
+    /// 发光范围（8–80px）。
+    pub island_glow_range: u8,
+    /// 自定义空闲文字，最长 24 个字符。
+    pub island_idle_text: String,
 
     // v4 及更早版本把配色平铺在 ui 下；只用于升级迁移，不再写回配置文件
     #[serde(rename = "accent", default, skip_serializing)]
@@ -528,6 +586,19 @@ impl Default for UiOpts {
             dark: default_dark_palette(),
             light: default_light_palette(),
             card_transparency: DEFAULT_CARD_TRANSPARENCY,
+            task_bar_idle: DEFAULT_TASK_BAR_IDLE.to_string(),
+            notice_seconds: DEFAULT_NOTICE_SECONDS,
+            island_idle_content: DEFAULT_ISLAND_IDLE_CONTENT.to_string(),
+            island_idle_shape: DEFAULT_ISLAND_IDLE_SHAPE.to_string(),
+            island_width: DEFAULT_ISLAND_WIDTH,
+            island_animation_speed: DEFAULT_ISLAND_ANIMATION_SPEED,
+            island_shape_inset: DEFAULT_ISLAND_SHAPE_INSET,
+            island_shape_action_gap: DEFAULT_ISLAND_SHAPE_ACTION_GAP,
+            island_bottom_gap: DEFAULT_ISLAND_BOTTOM_GAP,
+            island_glow: DEFAULT_ISLAND_GLOW,
+            island_glow_color: DEFAULT_ISLAND_GLOW_COLOR.to_string(),
+            island_glow_range: DEFAULT_ISLAND_GLOW_RANGE,
+            island_idle_text: "控制台".to_string(),
             legacy_accent: None,
             legacy_bg_top: None,
             legacy_bg_mid: None,
@@ -683,6 +754,56 @@ impl GlobalSettings {
             clean_color(&mut palette.card_color, &defaults.card_color);
         }
         self.ui.card_transparency = self.ui.card_transparency.min(MAX_CARD_TRANSPARENCY);
+        if self.ui.task_bar_idle != "always" {
+            self.ui.task_bar_idle = DEFAULT_TASK_BAR_IDLE.to_string();
+        }
+        if !(MIN_NOTICE_SECONDS..=MAX_NOTICE_SECONDS).contains(&self.ui.notice_seconds) {
+            self.ui.notice_seconds = DEFAULT_NOTICE_SECONDS;
+        }
+        if !matches!(
+            self.ui.island_idle_content.as_str(),
+            "animation" | "time" | "custom"
+        ) {
+            self.ui.island_idle_content = DEFAULT_ISLAND_IDLE_CONTENT.to_string();
+        }
+        if !matches!(
+            self.ui.island_idle_shape.as_str(),
+            "dots" | "chevrons" | "targets"
+        ) {
+            self.ui.island_idle_shape = DEFAULT_ISLAND_IDLE_SHAPE.to_string();
+        }
+        self.ui.island_width = self
+            .ui
+            .island_width
+            .clamp(MIN_ISLAND_WIDTH, MAX_ISLAND_WIDTH);
+        self.ui.island_animation_speed = self
+            .ui
+            .island_animation_speed
+            .clamp(MIN_ISLAND_ANIMATION_SPEED, MAX_ISLAND_ANIMATION_SPEED);
+        self.ui.island_shape_inset = self
+            .ui
+            .island_shape_inset
+            .clamp(MIN_ISLAND_SHAPE_INSET, MAX_ISLAND_SHAPE_INSET);
+        self.ui.island_shape_action_gap = self
+            .ui
+            .island_shape_action_gap
+            .clamp(MIN_ISLAND_SHAPE_ACTION_GAP, MAX_ISLAND_SHAPE_ACTION_GAP);
+        self.ui.island_bottom_gap = self
+            .ui
+            .island_bottom_gap
+            .clamp(MIN_ISLAND_BOTTOM_GAP, MAX_ISLAND_BOTTOM_GAP);
+        clean_color(&mut self.ui.island_glow_color, DEFAULT_ISLAND_GLOW_COLOR);
+        self.ui.island_glow_range = self
+            .ui
+            .island_glow_range
+            .clamp(MIN_ISLAND_GLOW_RANGE, MAX_ISLAND_GLOW_RANGE);
+        self.ui.island_idle_text = self
+            .ui
+            .island_idle_text
+            .trim()
+            .chars()
+            .take(MAX_ISLAND_IDLE_TEXT_CHARS)
+            .collect();
         if self.version < SETTINGS_VERSION {
             self.version = SETTINGS_VERSION;
         }
@@ -861,6 +982,9 @@ pub struct InstanceConfig {
     pub remote: Option<RemoteTarget>,
     pub imported: bool,
     pub state: InstanceState,
+    /// 最近一次进入 Error / 启动超时留下的原因；成功启动或停止后清空。
+    #[serde(default)]
+    pub last_error: Option<String>,
     pub created_at: String,
     pub last_started_at: Option<String>,
 }
@@ -1048,6 +1172,20 @@ mod tests {
         assert!(!s.network.hf_offline, "缺省应为 false");
         assert_eq!(s.ui.font_size, 13);
         assert_eq!(s.ui.card_transparency, DEFAULT_CARD_TRANSPARENCY);
+        assert_eq!(s.ui.task_bar_idle, DEFAULT_TASK_BAR_IDLE);
+        assert_eq!(s.ui.island_idle_content, DEFAULT_ISLAND_IDLE_CONTENT);
+        assert_eq!(s.ui.island_idle_shape, DEFAULT_ISLAND_IDLE_SHAPE);
+        assert_eq!(s.ui.island_width, DEFAULT_ISLAND_WIDTH);
+        assert_eq!(s.ui.island_animation_speed, DEFAULT_ISLAND_ANIMATION_SPEED);
+        assert_eq!(s.ui.island_shape_inset, DEFAULT_ISLAND_SHAPE_INSET);
+        assert_eq!(
+            s.ui.island_shape_action_gap,
+            DEFAULT_ISLAND_SHAPE_ACTION_GAP
+        );
+        assert_eq!(s.ui.island_bottom_gap, DEFAULT_ISLAND_BOTTOM_GAP);
+        assert_eq!(s.ui.island_glow, DEFAULT_ISLAND_GLOW);
+        assert_eq!(s.ui.island_glow_color, DEFAULT_ISLAND_GLOW_COLOR);
+        assert_eq!(s.ui.island_glow_range, DEFAULT_ISLAND_GLOW_RANGE);
         assert_eq!(s.ui.dark.accent, DEFAULT_ACCENT);
         assert_eq!(s.ui.dark.bg_top, DEFAULT_BG_TOP);
         assert_eq!(s.ui.dark.card_color, DEFAULT_CARD_COLOR);
@@ -1191,6 +1329,64 @@ mod tests {
         s.ui.card_transparency = 0;
         s.normalize();
         assert_eq!(s.ui.card_transparency, 0);
+    }
+
+    #[test]
+    fn island_preferences_are_clamped_and_trimmed() {
+        let mut s = GlobalSettings::default();
+        s.ui.island_idle_content = "junk".to_string();
+        s.ui.island_idle_shape = "junk".to_string();
+        s.ui.island_width = 0;
+        s.ui.island_animation_speed = 250;
+        s.ui.island_shape_inset = 0;
+        s.ui.island_shape_action_gap = 99;
+        s.ui.island_bottom_gap = 0;
+        s.ui.island_glow_color = "white".to_string();
+        s.ui.island_glow_range = 0;
+        s.ui.island_idle_text = format!("  {}  ", "长".repeat(40));
+        s.normalize();
+        assert_eq!(s.ui.island_idle_content, DEFAULT_ISLAND_IDLE_CONTENT);
+        assert_eq!(s.ui.island_idle_shape, DEFAULT_ISLAND_IDLE_SHAPE);
+        assert_eq!(s.ui.island_width, MIN_ISLAND_WIDTH);
+        assert_eq!(s.ui.island_animation_speed, MAX_ISLAND_ANIMATION_SPEED);
+        assert_eq!(s.ui.island_shape_inset, MIN_ISLAND_SHAPE_INSET);
+        assert_eq!(s.ui.island_shape_action_gap, MAX_ISLAND_SHAPE_ACTION_GAP);
+        assert_eq!(s.ui.island_bottom_gap, MIN_ISLAND_BOTTOM_GAP);
+        assert_eq!(s.ui.island_glow_color, DEFAULT_ISLAND_GLOW_COLOR);
+        assert_eq!(s.ui.island_glow_range, MIN_ISLAND_GLOW_RANGE);
+        assert_eq!(
+            s.ui.island_idle_text.chars().count(),
+            MAX_ISLAND_IDLE_TEXT_CHARS
+        );
+        assert!(!s.ui.island_idle_text.starts_with(' '));
+    }
+
+    #[test]
+    fn task_bar_idle_falls_back_to_auto() {
+        let mut s = GlobalSettings::default();
+        s.ui.task_bar_idle = "always".to_string();
+        s.normalize();
+        assert_eq!(s.ui.task_bar_idle, "always");
+
+        s.ui.task_bar_idle = "junk".to_string();
+        s.normalize();
+        assert_eq!(s.ui.task_bar_idle, DEFAULT_TASK_BAR_IDLE);
+    }
+
+    #[test]
+    fn notice_seconds_are_clamped_to_one_through_five() {
+        let mut s = GlobalSettings::default();
+        s.ui.notice_seconds = 5;
+        s.normalize();
+        assert_eq!(s.ui.notice_seconds, 5);
+
+        s.ui.notice_seconds = 0;
+        s.normalize();
+        assert_eq!(s.ui.notice_seconds, DEFAULT_NOTICE_SECONDS);
+
+        s.ui.notice_seconds = 9;
+        s.normalize();
+        assert_eq!(s.ui.notice_seconds, DEFAULT_NOTICE_SECONDS);
     }
 
     /// 旧版 instance.json（没 overrides / engineDetail）必须还能解。

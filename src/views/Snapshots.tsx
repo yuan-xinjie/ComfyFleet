@@ -1,5 +1,6 @@
+import { TextInput, Checkbox } from '../components/Form'
+import Button from '../components/Button'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { api, errText } from '../lib/api'
 import type {
   InstanceConfig,
@@ -15,10 +16,12 @@ import type {
   SnapshotSummary,
 } from '../types'
 import Icon from '../components/Icon'
+import Modal from '../components/Modal'
 import OperationDialog, {
   type OperationLine,
   type OperationTab,
 } from '../components/OperationDialog'
+import { speedFromLog, useBackgroundTask } from '../components/BackgroundTasks'
 
 /**
  * 快照页：布局与交互对齐 ComfyUI Desktop 的 Snapshots（时间线轨道 + 可展开的行）。
@@ -239,7 +242,7 @@ function DiffAccordion(props: {
   const [open, setOpen] = useState(false)
   return (
     <div className={`snap-acc${open ? ' is-open' : ''}`}>
-      <button
+      <Button
         type="button"
         className="snap-acc-trigger"
         aria-expanded={open}
@@ -253,7 +256,7 @@ function DiffAccordion(props: {
           <Icon name="chevron" size={11} />
         </span>
         <span>{title}</span>
-      </button>
+      </Button>
       {open &&
         (busy ? (
           <div className="snap-diff-loading">读取差异…</div>
@@ -412,15 +415,6 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
     return () => document.removeEventListener('keydown', onKey)
   }, [confirm, busy])
 
-  useEffect(() => {
-    if (!restoreOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setRestoreOpen(false)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [restoreOpen])
-
   const create = async () => {
     if (creating || busy) return
     setCreating(true)
@@ -567,7 +561,7 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
     setRestoreTarget(target ?? null)
     setRestoreEvents([])
     setOperationTab('detail')
-    setRestoreOpen(true)
+    setRestoreOpen(false)
     setConfirm(null)
     setReport(null)
     try {
@@ -664,6 +658,22 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
           ? 'is-err'
           : 'is-pending'
 
+  useBackgroundTask(
+    op
+      ? {
+          id: `restore-${inst.id}`,
+          title: '恢复快照',
+          phase: op.phase,
+          state: op.state === 'error' ? 'failed' : op.state,
+          percent: op.percent,
+          log: op.last,
+          speed: speedFromLog(op.last),
+          kind: 'snapshot',
+          onOpen: () => setRestoreOpen(true),
+        }
+      : null,
+  )
+
   return (
     <div className="stack snap-page">
       <div className="panel">
@@ -673,14 +683,14 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
             {loading ? '读取中…' : latestRel ? `最新：${latestRel}` : '还没有快照'}
           </span>
           <div className="row snap-tools">
-            <button
+            <Button
               className="ghost sm"
               onClick={() => void load()}
               title="刷新快照列表"
             >
               <Icon name="refresh" size={13} />
               刷新
-            </button>
+            </Button>
           </div>
         </header>
 
@@ -712,9 +722,9 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                         </div>
                         {op.last && <div className="snap-op-last">{op.last}</div>}
                         <div className="row">
-                          <button className="ghost sm" onClick={() => setRestoreOpen(true)}>
+                          <Button className="ghost sm" onClick={() => setRestoreOpen(true)}>
                             查看详情
-                          </button>
+                          </Button>
                         </div>
                       </>
                     ) : (
@@ -726,11 +736,11 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                         </p>
                         {report && <ReportPanel report={report} />}
                         <div className="row">
-                          <button className="ghost sm" onClick={() => setRestoreOpen(true)}>
+                          <Button className="ghost sm" onClick={() => setRestoreOpen(true)}>
                             恢复详情
-                          </button>
+                          </Button>
                           {report?.preSnapshot && (
-                            <button
+                            <Button
                               className="ghost sm"
                               onClick={() => {
                                 const pre = report.preSnapshot
@@ -739,18 +749,18 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                               }}
                             >
                               回滚到恢复前
-                            </button>
+                            </Button>
                           )}
-                          <button className="ghost sm" onClick={dismissOp}>
+                          <Button className="ghost sm" onClick={dismissOp}>
                             关闭
-                          </button>
+                          </Button>
                         </div>
                       </>
                     )}
                   </div>
                 ) : (
                   <div className="snap-save-row">
-                    <input
+                    <TextInput
                       className="snap-label"
                       type="text"
                       placeholder="备注（可选），比如「装 LCM 之前」"
@@ -761,10 +771,10 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                         if (e.key === 'Enter' && !creating) void create()
                       }}
                     />
-                    <button className="snap-cta" onClick={() => void create()} disabled={creating}>
+                    <Button className="snap-cta" onClick={() => void create()} disabled={creating}>
                       <Icon name="plus" size={13} />
                       {creating ? '记录中…' : '记录当前状态'}
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -786,7 +796,7 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                   aria-hidden="true"
                 />
                 <div className="snap-node-body">
-                  <button
+                  <Button
                     type="button"
                     className={`snap-row-head${isOpen ? ' is-open' : ''}`}
                     aria-expanded={isOpen}
@@ -853,7 +863,7 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                         </span>
                       )}
                     </span>
-                  </button>
+                  </Button>
 
                   {isOpen && (
                     <div className="snap-card">
@@ -913,22 +923,22 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                       />
 
                       <div className="snap-detail-actions">
-                        <button
+                        <Button
                           className="primary sm"
                           onClick={() => void askRestore(item.id)}
                           disabled={running || busy || previewing === item.id}
                         >
                           <Icon name="refresh" size={13} />
                           {previewing === item.id ? '读取差异…' : '恢复到这一刻'}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           className={`ghost sm${arming === item.id ? ' danger' : ''}`}
                           onClick={() => void remove(item)}
                           disabled={busy}
                         >
                           <Icon name="trash" size={13} />
                           {arming === item.id ? '确认删除' : '删除'}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -940,26 +950,19 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
         </div>
       </div>
 
-      {wheelGate &&
-        createPortal(
-          <div
-            className="modal-backdrop"
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget && !gateBusy) setWheelGate(null)
-            }}
-          >
-            <div
-              className="modal snap-restore-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="snap-wheels-title"
-            >
+      {wheelGate && (
+        <Modal
+          className="snap-restore-modal"
+          labelledBy="snap-wheels-title"
+          dismissible={!gateBusy}
+          onClose={() => setWheelGate(null)}
+        >
               <div className="modal-head">
                 <Icon name="alert" size={15} />
                 <h2 id="snap-wheels-title">缺少本地 wheel</h2>
                 <span className="badge warn">{wheelGate.missing.length} 个包</span>
                 <div className="spacer" />
-                <button
+                <Button
                   className="icon-btn"
                   onClick={() => setWheelGate(null)}
                   disabled={gateBusy}
@@ -967,14 +970,12 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                   aria-label="关闭缺少 wheel 提示"
                 >
                   <Icon name="close" size={16} />
-                </button>
+                </Button>
               </div>
               <div className="modal-body">
-                <p className="hint">
-                  这次恢复要装的包里有 {wheelGate.missing.length}{' '}
-                  个的 wheel 在本地库里找不到文件。把对应的 .whl 放进「设置 → 本地
-                  Wheel 库」后点「继续」重新检查；也可以确认跳过——这些包不会被安装，环境可能不完整。
-                </p>
+                <div className="launch-warn">
+                  缺少 {wheelGate.missing.length} 个 wheel，跳过会导致环境不完整。
+                </div>
                 {wheelGate.retried && (
                   <div className="launch-warn">重新检查后仍然缺少，补齐文件再点「继续」。</div>
                 )}
@@ -993,46 +994,37 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
               </div>
               <div className="modal-foot">
                 <div className="spacer" />
-                <button
+                <Button
                   className="ghost"
                   onClick={() => setWheelGate(null)}
                   disabled={gateBusy}
                   autoFocus
                 >
                   取消
-                </button>
-                <button className="danger" onClick={skipWheelGate} disabled={gateBusy}>
+                </Button>
+                <Button className="danger" onClick={skipWheelGate} disabled={gateBusy}>
                   跳过（不安装这些包）
-                </button>
-                <button className="primary" onClick={() => void retryWheelGate()} disabled={gateBusy}>
+                </Button>
+                <Button className="primary" onClick={() => void retryWheelGate()} disabled={gateBusy}>
                   {gateBusy ? '检查中…' : '继续'}
-                </button>
+                </Button>
               </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+        </Modal>
+      )}
 
-      {confirm &&
-        createPortal(
-          <div
-            className="modal-backdrop"
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget && !busy) setConfirm(null)
-            }}
-          >
-          <div
-            className="modal snap-restore-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="snap-restore-title"
-          >
+      {confirm && (
+        <Modal
+          className="snap-restore-modal"
+          labelledBy="snap-restore-title"
+          dismissible={!busy}
+          onClose={() => setConfirm(null)}
+        >
             <div className="modal-head">
               <Icon name="clock" size={15} />
               <h2 id="snap-restore-title">恢复到这条快照？</h2>
               <span className="badge warn">不可撤销</span>
               <div className="spacer" />
-              <button
+              <Button
                 className="icon-btn"
                 onClick={() => setConfirm(null)}
                 disabled={busy}
@@ -1040,7 +1032,7 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                 aria-label="关闭恢复确认"
               >
                 <Icon name="close" size={16} />
-              </button>
+              </Button>
             </div>
             <div className="modal-body">
               <div className="snap-restore-target">
@@ -1055,15 +1047,14 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                   实例正在运行，先停止再恢复：文件被占用会装不回去，包也会装完又被覆盖。
                 </div>
               ) : (
-                <p className="hint">
-                  恢复会切换版本、还原节点与包，并恢复启动参数。目标节点的本地改动会被覆盖；恢复前自动存一条「恢复前」快照。
-                </p>
+                <div className="launch-warn">
+                  恢复会切换版本、还原节点与包，并恢复启动参数。目标节点的本地改动会被覆盖。
+                </div>
               )}
 
               {confirm.preview.targets.nodesContent > 0 && (
-                <div className="hint">
-                  会还原 {confirm.preview.targets.nodesContent} 个节点的本地内容（手工节点目录 / git
-                  未提交改动），目标节点当前的本地改动会被覆盖。
+                <div className="launch-warn">
+                  会还原 {confirm.preview.targets.nodesContent} 个节点的本地内容，目标节点当前的本地改动会被覆盖。
                 </div>
               )}
 
@@ -1071,7 +1062,7 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
 
               <div className="snap-opts">
                 <label className="check-row">
-                  <input
+                  <Checkbox
                     type="checkbox"
                     checked={opts.removeExtraNodes}
                     onChange={(e) =>
@@ -1081,7 +1072,7 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                   删掉快照里没有的自定义节点（{confirm.preview.targets.nodesRemove} 个）
                 </label>
                 <label className="check-row">
-                  <input
+                  <Checkbox
                     type="checkbox"
                     checked={opts.removeExtraPackages}
                     onChange={(e) =>
@@ -1093,7 +1084,7 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
               </div>
 
               {confirm.preview.targets.packagesProtected.length > 0 && (
-                <div className="hint">
+                <div className="launch-warn">
                   torch 系与打包工具不动，只报告差异：
                   {confirm.preview.targets.packagesProtected
                     .map((p) => `${p.name} ${p.current ?? '—'}→${p.target ?? '—'}`)
@@ -1103,21 +1094,19 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
             </div>
             <div className="modal-foot">
               <div className="spacer" />
-              <button className="ghost" onClick={() => setConfirm(null)} autoFocus>
+              <Button className="ghost" onClick={() => setConfirm(null)} autoFocus>
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 className="primary"
                 onClick={() => void runRestore()}
                 disabled={confirm.preview.running || running}
               >
                 开始恢复
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>,
-          document.body,
-        )}
+        </Modal>
+      )}
 
       {restoreOpen && op && (
         <OperationDialog
@@ -1131,12 +1120,18 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
           onTab={setOperationTab}
           detailLabel="恢复详情"
           stepLabel={(step) => STEP_LABEL[step] ?? step}
-          onClose={() => setRestoreOpen(false)}
+          onClose={() => {
+            if (op.state === 'running') {
+              setRestoreOpen(false)
+              return
+            }
+            dismissOp()
+          }}
           footer={
             report?.preSnapshot && op.state !== 'running' ? (
-              <button className="ghost" onClick={() => rollbackRestore(report.preSnapshot!)}>
+              <Button className="ghost" onClick={() => rollbackRestore(report.preSnapshot!)}>
                 回滚到恢复前
-              </button>
+              </Button>
             ) : null
           }
         >

@@ -1,3 +1,4 @@
+import Button from '../components/Button'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type { InstanceConfig, RepoWheel, VersionEvent, WheelRepoList } from '../types'
@@ -9,6 +10,7 @@ import OperationDialog, {
   type OperationTab,
 } from '../components/OperationDialog'
 import WheelPackageDialog, { type WheelGroup } from '../components/WheelPackageDialog'
+import { speedFromLog, useBackgroundTask } from '../components/BackgroundTasks'
 
 /**
  * 设置页里的「其他轮子」：云端仓库按包名聚合成卡片。
@@ -61,6 +63,7 @@ export default function WheelPanel({ inst, running, notify }: Props) {
   const [opEvents, setOpEvents] = useState<OperationLine[]>([])
   const [opPhase, setOpPhase] = useState('准备中')
   const [opTab, setOpTab] = useState<OperationTab>('detail')
+  const [opOpen, setOpOpen] = useState(false)
 
   const loadRepo = useCallback(
     async (refresh: boolean) => {
@@ -116,6 +119,7 @@ export default function WheelPanel({ inst, running, notify }: Props) {
     setOpenGroupName(null)
     setFailMsg(null)
     setDownloadError(null)
+    setOpOpen(false)
     setOpEvents([])
     setOpPhase(force ? '强制安装' : '准备安装')
     setOpTab('detail')
@@ -202,6 +206,29 @@ export default function WheelPanel({ inst, running, notify }: Props) {
 
   const totalCompatible = groups.reduce((sum, group) => sum + group.compatible.length, 0)
 
+  const opTitle = pick
+    ? `${phase === 'running' ? (pick.force ? '强制安装' : '安装') : phase === 'ok' ? '安装完成' : '安装失败'} ${pick.wheel.group || pick.wheel.name}`
+    : ''
+
+  useBackgroundTask(
+    pick && phase !== 'idle'
+      ? {
+          id: `wheel-${inst.id}`,
+          title: opTitle,
+          phase: opPhase,
+          state: phase === 'running' ? 'running' : phase === 'ok' ? 'ok' : 'failed',
+          percent:
+            phase === 'ok'
+              ? 100
+              : operationPercent(opEvents[opEvents.length - 1]?.message ?? '') ?? undefined,
+          log: opEvents[opEvents.length - 1]?.message,
+          speed: speedFromLog(opEvents[opEvents.length - 1]?.message),
+          kind: 'wheel',
+          onOpen: () => setOpOpen(true),
+        }
+      : null,
+  )
+
   return (
     <div className="panel settings-clean wheel-panel">
       <div className="panel-head">
@@ -213,10 +240,10 @@ export default function WheelPanel({ inst, running, notify }: Props) {
             {new Date(repo.fetchedAt * 1000).toLocaleString('zh-CN', { hour12: false })}
           </span>
         ) : null}
-        <button className="ghost" disabled={repoBusy} onClick={() => void loadRepo(true)}>
+        <Button className="ghost" disabled={repoBusy} onClick={() => void loadRepo(true)}>
           <Icon name="refresh" size={13} />
           {repoBusy ? '刷新中…' : '刷新仓库'}
-        </button>
+        </Button>
       </div>
 
       <div className="panel-body">
@@ -374,15 +401,9 @@ export default function WheelPanel({ inst, running, notify }: Props) {
         />
       )}
 
-      {pick && phase !== 'idle' && (
+      {pick && phase !== 'idle' && opOpen && (
         <OperationDialog
-          title={
-            phase === 'running'
-              ? `${pick.force ? '强制安装' : '安装'} ${pick.wheel.group || pick.wheel.name}`
-              : phase === 'ok'
-                ? '安装完成'
-                : '安装失败'
-          }
+          title={opTitle}
           target={pick.wheel.name}
           state={phase}
           phase={opPhase}
@@ -396,8 +417,11 @@ export default function WheelPanel({ inst, running, notify }: Props) {
           tab={opTab}
           onTab={setOpTab}
           detailLabel="安装详情"
-          allowHideOnRun={false}
           onClose={() => {
+            if (phase === 'running') {
+              setOpOpen(false)
+              return
+            }
             setPick(null)
             setPhase('idle')
           }}

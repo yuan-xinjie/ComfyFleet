@@ -1,3 +1,4 @@
+import Button from './Button'
 import type { ThemeMode } from '../lib/theme'
 import Icon from './Icon'
 
@@ -17,7 +18,7 @@ export default function ThemeToggle({
   const next = theme === 'light' ? 'dark' : 'light'
   const label = next === 'light' ? '切换到亮色主题' : '切换到暗色主题'
   return (
-    <button
+    <Button
       type="button"
       className="icon-btn theme-toggle"
       onClick={onToggle}
@@ -26,6 +27,6 @@ export default function ThemeToggle({
       aria-label={label}
     >
       <Icon name={next === 'light' ? 'sun' : 'moon'} size={15} />
-    </button>
+    </Button>
   )
 }

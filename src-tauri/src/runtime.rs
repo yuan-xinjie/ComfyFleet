@@ -935,6 +935,7 @@ mod tests {
             remote: None,
             imported: false,
             state: InstanceState::Ready,
+            last_error: None,
             created_at: String::new(),
             last_started_at: None,
         }

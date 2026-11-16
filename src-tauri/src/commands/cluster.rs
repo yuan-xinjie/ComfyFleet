@@ -168,7 +168,6 @@ pub async fn cluster_set_lan(app: AppHandle, allow_lan: bool) -> Result<ClusterS
         // 旧监听线程是 nonblocking accept 循环，给它一点时间释放端口。
         std::thread::sleep(std::time::Duration::from_millis(500));
         let shared = cluster::start_server(next)?;
-        cluster::start_source_publisher(&shared, handle.clone());
         state.cluster.lock().leader = Some(shared);
         log::info!("集群监听范围已切换：allow_lan={allow_lan}");
         Ok(cluster::status(&handle))
@@ -185,7 +184,6 @@ pub async fn cluster_create(
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let shared = cluster::create_cluster(&req.name, &req.password, req.port, req.allow_lan)?;
-        cluster::start_source_publisher(&shared, handle.clone());
         let state = handle.state::<AppState>();
         {
             let mut rt = state.cluster.lock();
@@ -423,6 +421,11 @@ pub async fn sync_preview(app: AppHandle, req: SyncPreviewReq) -> Result<SyncPre
         }
         let target_state = target.clone();
         let mut source = sync::capture_instance_state(&inst, &settings, Some(&git), true);
+        let running = matches!(
+            inst.state,
+            crate::config::InstanceState::Running | crate::config::InstanceState::Starting
+        );
+        cluster::cache_source_state(&handle, &source, running);
         // 拍一条正式快照，既作为同步代次的元数据，也方便源端追溯。
         let snap = snapshot::capture(
             &inst,
@@ -469,6 +472,11 @@ pub async fn sync_preview_batch(
         validate_target_pairs(&pairs)?;
         let (inst, settings, git) = source_instance(&handle, &req.source_instance_id)?;
         let mut source = sync::capture_instance_state(&inst, &settings, Some(&git), true);
+        let running = matches!(
+            inst.state,
+            crate::config::InstanceState::Running | crate::config::InstanceState::Starting
+        );
+        cluster::cache_source_state(&handle, &source, running);
         let snap = snapshot::capture(
             &inst,
             &settings,
@@ -770,6 +778,11 @@ pub async fn sync_request(
                     req.scope,
                     Some(prep.as_ref()),
                 )?;
+                let running = matches!(
+                    inst.state,
+                    crate::config::InstanceState::Running | crate::config::InstanceState::Starting
+                );
+                cluster::cache_source_state(&handle, &source, running);
                 prep.check()?;
                 let fingerprint = sync::preparation_fingerprint(&source, req.scope, &settings);
                 prep.update(

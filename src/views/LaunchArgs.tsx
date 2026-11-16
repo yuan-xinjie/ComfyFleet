@@ -1,3 +1,5 @@
+import { TextInput, TextArea, Checkbox } from '../components/Form'
+import Button from '../components/Button'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, errText } from '../lib/api'
 import {
@@ -250,7 +252,7 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
     const value = active.get(spec.flag) ?? ''
     return (
       <div className={`flag-row${on ? ' on' : ''}`} key={spec.flag}>
-        <input
+        <Checkbox
           type="checkbox"
           id={`flag-${spec.flag}`}
           aria-label={spec.flag}
@@ -274,7 +276,7 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
                 }))}
               />
             ) : (
-              <input
+              <TextInput
                 aria-label={`${spec.flag} 的值`}
                 type={spec.value.numeric ? 'number' : 'text'}
                 className={spec.value.numeric ? '' : 'mono'}
@@ -298,10 +300,10 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
           <span className="badge ghost">{inst.name}</span>
           {dirty && <span className="badge warn">未保存</span>}
           <div className="spacer" />
-          <button className="ghost sm" onClick={() => void api.openUrl(DOCS_URL)}>
+          <Button className="ghost sm" onClick={() => void api.openUrl(DOCS_URL)}>
             <Icon name="globe" size={13} />
             官方文档
-          </button>
+          </Button>
         </header>
 
         <div className="panel-body settings-body">
@@ -315,7 +317,7 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
             </div>
             <div className="field launch-custom">
               <label>自定义参数</label>
-              <textarea
+              <TextArea
                 rows={6}
                 className="mono"
                 aria-label="自定义启动参数"
@@ -356,7 +358,7 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
               </div>
               <div className="field">
                 <label>端口</label>
-                <input
+                <TextInput
                   type="number"
                   aria-label="端口"
                   value={port}
@@ -368,7 +370,7 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
               </div>
               <div className="field" style={{ gridColumn: '1 / -1' }}>
                 <label>CORS 允许来源（可选）</label>
-                <input
+                <TextInput
                   aria-label="CORS 允许来源"
                   value={corsOrigin}
                   placeholder="留空 = 不启用跨域"
@@ -384,7 +386,7 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
                 可选参数 <span className="badge ghost">已启用 {enabledCount} 项</span>
               </h3>
               <div className="spacer" />
-              <input
+              <TextInput
                 className="launch-search"
                 aria-label="搜索参数"
                 placeholder="搜参数名或说明"

@@ -311,10 +311,9 @@ fn download(
         .timeout_read(Duration::from_secs(60))
         .build();
     let resp = agent.get(url).call().map_err(|e| match e {
-        ureq::Error::Status(code, _) => AppError::new(
-            "RUNTIME_HTTP",
-            format!("{label} 下载失败：HTTP {code}"),
-        ),
+        ureq::Error::Status(code, _) => {
+            AppError::new("RUNTIME_HTTP", format!("{label} 下载失败：HTTP {code}"))
+        }
         other => AppError::new("RUNTIME_HTTP", format!("{label} 下载失败：{other}")),
     })?;
 
@@ -551,7 +550,10 @@ fn install_uv(emit: &mut dyn FnMut(RuntimeEvent)) -> Result<(), AppError> {
     if probe(&target, &["--version"]).is_none() {
         return Err(AppError::new(
             "RUNTIME_BROKEN",
-            format!("uv 装好了但跑不起来：{}（可能被杀软拦截）", target.display()),
+            format!(
+                "uv 装好了但跑不起来：{}（可能被杀软拦截）",
+                target.display()
+            ),
         ));
     }
     Ok(())

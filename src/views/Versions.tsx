@@ -1,3 +1,4 @@
+import Button from '../components/Button'
 import { useCallback, useEffect, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type {
@@ -8,12 +9,15 @@ import type {
   VersionInfo,
 } from '../types'
 import Icon from '../components/Icon'
+import Modal from '../components/Modal'
 import Segmented from '../components/Segmented'
 import OperationDialog, {
+  operationPercent,
   operationStageLabel,
   type OperationLine,
   type OperationTab,
 } from '../components/OperationDialog'
+import { speedFromLog, useBackgroundTask } from '../components/BackgroundTasks'
 
 interface Props {
   instanceId: string
@@ -23,6 +27,8 @@ interface Props {
   notify: (kind: 'ok' | 'err', msg: string) => void
   /** 通道 / 版本变了：让父级重读 instance.json，概览页的通道别停在旧值 */
   onChanged?: () => void
+  /** 切换 / 更新期间把忙碌状态交给父级，避免灵动岛还显示可启动。 */
+  onBusyChange?: (busy: boolean) => void
 }
 
 /** 开发版固定跟随 master；稳定版 = 停在某个发版 tag 上 */
@@ -134,61 +140,53 @@ function TagListSkeleton() {
   )
 }
 
-/** 清理清单用浮层卡片展示，不挤占版本面板的布局 */function DirtyFilesDialog({
+/** 清理清单用浮层卡片展示，不挤占版本面板的布局 */
+function DirtyFilesDialog({
   files,
   onClose,
 }: {
   files: VersionDirtyFile[]
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+    <Modal
+      className="version-dirty-modal"
+      labelledBy="dirty-files-title"
+      onClose={onClose}
     >
-      <div
-        className="modal version-dirty-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dirty-files-title"
-      >
-        <div className="modal-head">
-          <Icon name="alert" size={15} />
-          <h2 id="dirty-files-title">切版本前会清理这些文件</h2>
-          <span className="badge warn">{files.length} 个</span>
-          <div className="spacer" />
-          <button className="icon-btn" onClick={onClose} title="关闭" aria-label="关闭">
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-        <div className="modal-body">
-          <div className="hint">
-            切版本前会先做快照；下面这些未提交文件会被清理，未列出的文件不会动。
-          </div>
-          <DirtyFileList files={files} />
-        </div>
-        <div className="modal-foot">
-          <button className="primary sm" onClick={onClose}>
-            知道了
-          </button>
-        </div>
+      <div className="modal-head">
+        <Icon name="alert" size={15} />
+        <h2 id="dirty-files-title">切版本前会清理这些文件</h2>
+        <span className="badge warn">{files.length} 个</span>
+        <div className="spacer" />
+        <Button className="icon-btn" onClick={onClose} title="关闭" aria-label="关闭">
+          <Icon name="close" size={16} />
+        </Button>
       </div>
-    </div>
+      <div className="modal-body">
+        <div className="launch-warn">
+          切版本前会先做快照；下面这些未提交文件会被清理，未列出的文件不会动。
+        </div>
+        <DirtyFileList files={files} />
+      </div>
+      <div className="modal-foot">
+        <Button className="primary sm" onClick={onClose}>
+          知道了
+        </Button>
+      </div>
+    </Modal>
   )
 }
 
 /** 版本管理：切稳定版 / 开发版、看当前版本、看切换的控制台输出 */
-export default function Versions({ instanceId, instanceName, canSwitch, notify, onChanged }: Props) {
+export default function Versions({
+  instanceId,
+  instanceName,
+  canSwitch,
+  notify,
+  onChanged,
+  onBusyChange,
+}: Props) {
   const [info, setInfo] = useState<VersionInfo | null>(null)
   const [tags, setTags] = useState<TagInfo[]>([])
   /** null = 还没取过（第一次切到开发版时才联网拉） */
@@ -216,6 +214,14 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
   const [opEvents, setOpEvents] = useState<OperationLine[]>([])
   const [opTab, setOpTab] = useState<OperationTab>('detail')
   const [cancelling, setCancelling] = useState(false)
+
+  useEffect(() => {
+    onBusyChange?.(busy)
+  }, [busy, onBusyChange])
+
+  useEffect(() => {
+    return () => onBusyChange?.(false)
+  }, [onBusyChange])
 
   const load = useCallback(async () => {
     setError(null)
@@ -372,7 +378,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
     setConsoleTarget(`更新 ${DEV_BRANCH} 到最新`)
     setConsoleTitle(`更新 ${DEV_BRANCH} 到最新`)
     setConsoleState('running')
-    setConsoleOpen(true)
+    setConsoleOpen(false)
     try {
       const v = await api.versionUpdate(instanceId, pushEvent, clean)
       setConsoleState('ok')
@@ -413,7 +419,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
     setConsoleTarget(`切换到 ${p.label}`)
     setConsoleTitle(`切换到 ${p.label}`)
     setConsoleState('running')
-    setConsoleOpen(true)
+    setConsoleOpen(false)
     try {
       const v = await api.versionSwitch(instanceId, p.target, p.kind, pushEvent, p.clean)
       setConsoleState('ok')
@@ -472,6 +478,24 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
   const tip = commits && commits.length > 0 ? commits[0] : null
   const pinned = (commits ?? []).filter((c) => !tip || c.sha !== tip.sha)
 
+  useBackgroundTask(
+    consoleTitle
+      ? {
+          id: `version-${instanceId}`,
+          title: consoleTitle,
+          phase: opEvents[opEvents.length - 1]?.step ?? '',
+          state: consoleState,
+          percent: operationPercent(opEvents[opEvents.length - 1]?.message ?? '') ?? undefined,
+          log: opEvents[opEvents.length - 1]?.message,
+          speed: speedFromLog(opEvents[opEvents.length - 1]?.message),
+          kind: 'version',
+          onOpen: () => {
+            setConsoleOpen(true)
+          },
+        }
+      : null,
+  )
+
   return (
     <div className="stack">
       <div className="panel">
@@ -481,16 +505,16 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
           {info && <span className={`badge ${dev ? 'ghost' : 'ok'}`}>{channelText}</span>}
           <div className="spacer" />
           {logs.length > 0 && (
-            <button
+            <Button
               className="ghost sm"
               onClick={() => setConsoleOpen(true)}
               title="重看上一次切换 / 更新的输出"
             >
               <Icon name="console" size={13} />
               查看日志
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             className="ghost sm"
             onClick={() => void check()}
             disabled={busy || detached || loading}
@@ -504,8 +528,8 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
           >
             <Icon name="refresh" size={13} />
             检查更新
-          </button>
-          <button
+          </Button>
+          <Button
             className="primary sm"
             onClick={() => void requestUpdate()}
             disabled={busy || dirtyLoading || detached || loading || !canSwitch || wrongBranch}
@@ -521,7 +545,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
           >
             <Icon name="download" size={13} />
             更新到最新
-          </button>
+          </Button>
         </div>
         <div className="panel-body" style={{ paddingTop: 6 }}>
           {error && <div className="banner err">{error}</div>}
@@ -545,14 +569,14 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                     {info.dirty ? (
                       <span className="row" style={{ gap: 8 }}>
                         <span className="badge warn">有未提交改动，切换前会清理</span>
-                        <button
+                        <Button
                           type="button"
                           className="ghost sm"
                           onClick={() => void showDirty()}
                           disabled={dirtyLoading}
                         >
                           {dirtyLoading ? '读取中…' : '查看清理清单'}
-                        </button>
+                        </Button>
                       </span>
                     ) : (
                       <span className="badge ok">干净</span>
@@ -603,7 +627,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
           <span className="hint nowrap">
             {tab === 'stable' ? '旧版本按需下载' : '开发版提交列表'}
           </span>
-          <button
+          <Button
             className="ghost sm"
             onClick={() => void (tab === 'stable' ? load() : loadCommits(true))}
             disabled={tab === 'stable' ? loading : commitsLoading}
@@ -611,7 +635,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
           >
             <Icon name="refresh" size={13} />
             刷新
-          </button>
+          </Button>
         </div>
 
         <div className="panel-body" style={{ padding: 0 }}>
@@ -628,10 +652,10 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
               </div>
               {pending.clean && <DirtyFileList files={dirtyFiles} />}
               <div className="row" style={{ marginTop: 8 }}>
-                <button className="primary sm" disabled={busy} onClick={() => void doSwitch(pending)}>
+                <Button className="primary sm" disabled={busy} onClick={() => void doSwitch(pending)}>
                   {pending.clean ? '清理并切换' : '确认切换'}
-                </button>
-                <button
+                </Button>
+                <Button
                   className="ghost sm"
                   onClick={() => {
                     setPending(null)
@@ -640,7 +664,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                   }}
                 >
                   取消
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -654,10 +678,10 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
               </div>
               <DirtyFileList files={dirtyFiles} />
               <div className="row" style={{ marginTop: 8 }}>
-                <button className="primary sm" disabled={busy} onClick={() => void update(true)}>
+                <Button className="primary sm" disabled={busy} onClick={() => void update(true)}>
                   清理并更新
-                </button>
-                <button
+                </Button>
+                <Button
                   className="ghost sm"
                   onClick={() => {
                     setPendingUpdate(false)
@@ -666,7 +690,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                   }}
                 >
                   取消
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -681,10 +705,10 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                 </span>
                 <strong>没读到版本列表</strong>
                 <span className="hint">检查网络或镜像设置，然后重试；已安装的版本不受影响。</span>
-                <button className="ghost sm" onClick={() => void load()} disabled={loading}>
+                <Button className="ghost sm" onClick={() => void load()} disabled={loading}>
                   <Icon name="refresh" size={13} />
                   重试
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="tag-list">
@@ -699,7 +723,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                     {t.current ? (
                       <span className="badge ok">当前</span>
                     ) : (
-                      <button
+                      <Button
                         className="ghost sm"
                         disabled={blocked}
                         title={blocked ? blockedWhy : `切到 ${t.name} 并重装依赖`}
@@ -708,7 +732,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                         }
                       >
                         切换
-                      </button>
+                      </Button>
                     )}
                   </div>
                 ))}
@@ -730,7 +754,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                 {onDevBranch ? (
                   <span className="badge ok">当前</span>
                 ) : (
-                  <button
+                  <Button
                     className="ghost sm"
                     disabled={blocked}
                     title={blocked ? blockedWhy : `跟随 ${DEV_BRANCH} 最新提交`}
@@ -743,7 +767,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                     }
                   >
                     跟随最新
-                  </button>
+                  </Button>
                 )}
               </div>
 
@@ -758,10 +782,10 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                   <span className="hint">
                     离线或没有 origin 时读不到历史；仍可直接跟随 {DEV_BRANCH}。
                   </span>
-                  <button className="ghost sm" onClick={() => void loadCommits(true)} disabled={commitsLoading}>
+                  <Button className="ghost sm" onClick={() => void loadCommits(true)} disabled={commitsLoading}>
                     <Icon name="refresh" size={13} />
                     重试
-                  </button>
+                  </Button>
                 </div>
               )}
               {!commitsLoading &&
@@ -778,7 +802,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                     {c.current ? (
                       <span className="badge ok">当前</span>
                     ) : (
-                      <button
+                      <Button
                         className="ghost sm"
                         disabled={blocked}
                         title={blocked ? blockedWhy : `切到提交 ${c.short} 并重装依赖`}
@@ -791,7 +815,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                         }
                       >
                         切换
-                      </button>
+                      </Button>
                     )}
                   </div>
                 ))}
@@ -814,15 +838,15 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
           tab={opTab}
           onTab={setOpTab}
           detailLabel="版本详情"
-          closeLabel={consoleState === 'running' ? '后台继续' : '关闭'}
+          closeLabel={consoleState === 'running' ? undefined : '关闭'}
           onClose={() => setConsoleOpen(false)}
           footer={
             <>
-              <button className="ghost" onClick={() => void copyLogs()} disabled={logs.length === 0}>
+              <Button className="ghost" onClick={() => void copyLogs()} disabled={logs.length === 0}>
                 复制日志
-              </button>
+              </Button>
               {consoleState === 'running' && (
-                <button
+                <Button
                   className="ghost stop"
                   onClick={() => void cancelVersion()}
                   disabled={cancelling}
@@ -830,7 +854,7 @@ export default function Versions({ instanceId, instanceName, canSwitch, notify, 
                 >
                   <Icon name="stop" size={13} />
                   {cancelling ? '正在取消…' : '取消依赖安装'}
-                </button>
+                </Button>
               )}
             </>
           }

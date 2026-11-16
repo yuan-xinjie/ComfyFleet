@@ -272,10 +272,7 @@ fn cancelled(step: Step) -> AppError {
 ///
 /// 新建实例会预建一个空 ComfyUI 占位目录，这种目录必须直接移除；只有里面
 /// 确实有用户文件时才改名成 `ComfyUI.broken-*` 保留。
-fn replace_incomplete_comfy(
-    comfy_dir: &Path,
-    staging: &Path,
-) -> Result<Option<PathBuf>, AppError> {
+fn replace_incomplete_comfy(comfy_dir: &Path, staging: &Path) -> Result<Option<PathBuf>, AppError> {
     if !comfy_dir.exists() {
         return Ok(None);
     }
@@ -1039,10 +1036,11 @@ mod tests {
         let backup = replace_incomplete_comfy(&comfy, &staging).unwrap();
         assert!(backup.is_none(), "空占位目录不应产生 .broken 备份");
         assert!(!comfy.exists(), "空占位目录应被移除，给新 clone 让位");
-        let broken = std::fs::read_dir(&root)
-            .unwrap()
-            .flatten()
-            .any(|e| e.file_name().to_string_lossy().starts_with("ComfyUI.broken-"));
+        let broken = std::fs::read_dir(&root).unwrap().flatten().any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("ComfyUI.broken-")
+        });
         assert!(!broken);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1120,8 +1118,7 @@ mod tests {
         let mut cmd = base("cmd.exe");
         cmd.args(["/C", "ping", "-n", "20", "127.0.0.1"]);
         let started = std::time::Instant::now();
-        let err =
-            stream(&mut cmd, Step::Venv, &mut |_| {}, &cancel).expect_err("must cancel");
+        let err = stream(&mut cmd, Step::Venv, &mut |_| {}, &cancel).expect_err("must cancel");
         assert_eq!(err.code, "INSTALL_CANCELLED");
         assert!(
             started.elapsed() < Duration::from_secs(8),

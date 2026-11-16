@@ -1,7 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import Button from './Button'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icon'
 import { api, type NetSpeed } from '../lib/api'
+import { playIslandWindowCollapse, playIslandWindowMorph } from '../lib/windowMorph'
 
 export type OperationState = 'running' | 'ok' | 'failed' | 'cancelled'
 export type OperationTab = 'detail' | 'console'
@@ -203,7 +205,7 @@ interface Props {
   consoleLabel?: string
   stepLabel?: (step: string) => string
   closeLabel?: string
-  /** 运行中是否允许收起到后台。安装类操作传 false，避免用户以为已经停掉。 */
+  /** 运行中是否允许退到后台；后台任务入口会保留这次操作。 */
   allowHideOnRun?: boolean
   /** 显示整机物理网卡吞吐；安装/节点/切版本显示网络，同步显示局域网。 */
   showNet?: boolean
@@ -246,7 +248,19 @@ export default function OperationDialog({
   const titleId = useId()
   const running = state === 'running'
   const canHide = !running || allowHideOnRun
-  const modalRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLElement | null>(null)
+  const closingRef = useRef(false)
+  const requestClose = useCallback(() => {
+    if (!canHide || closingRef.current) return
+    closingRef.current = true
+    playIslandWindowCollapse(panelRef.current)
+    onClose()
+  }, [canHide, onClose])
+  const previousFocus = useRef<HTMLElement | null>(
+    typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  )
   const consoleRef = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const latestByStep = new Map<string, OperationLine>()
@@ -254,16 +268,34 @@ export default function OperationDialog({
   const consoleLines = buildConsoleLines(events)
 
   useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    modalRef.current?.focus()
-    return () => previous?.focus()
-  }, [])
-
-  useEffect(() => {
     if (tab !== 'console' || !stick.current) return
     const el = consoleRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [events.length, tab])
+
+  // 从任务条当前位置展开成详情窗口；任务条被遮住时也能取到它的尺寸。
+  useLayoutEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    return playIslandWindowMorph(el)
+  }, [])
+
+  useEffect(() => {
+    const el = panelRef.current
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
+    return () => previousFocus.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    if (!canHide) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      requestClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [requestClose])
 
   // 长操作都显示整机物理网卡吞吐；只有同步任务把标签写成“局域网”。
   // 依赖安装不再从目录增长推算磁盘写入速度。
@@ -291,17 +323,6 @@ export default function OperationDialog({
     }
   }, [running, showNet])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && canHide) {
-        e.preventDefault()
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [canHide, onClose])
-
   const tone =
     state === 'running' ? 'is-running' : state === 'ok' ? 'is-ok' : state === 'cancelled' ? 'is-warn' : 'is-err'
   const status =
@@ -312,7 +333,7 @@ export default function OperationDialog({
         : state === 'cancelled'
           ? '已取消'
           : '失败'
-  const closeText = closeLabel ?? (running ? (allowHideOnRun ? '收起' : '安装中…') : '关闭')
+  const closeText = closeLabel ?? (running ? (allowHideOnRun ? '后台运行' : '安装中…') : '关闭')
   const shownFacts =
     facts ??
     [
@@ -322,36 +343,22 @@ export default function OperationDialog({
     ]
 
   return createPortal(
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        if (canHide && e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div
-        ref={modalRef}
-        className={`modal op-run-modal${running ? '' : ' is-done'}`}
+    <div className="op-dock-layer">
+      {canHide && (
+        <div
+          className="op-dock-scrim"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) requestClose()
+          }}
+        />
+      )}
+      <section
+        ref={panelRef}
+        className={`modal op-run-modal op-dock-panel${running ? '' : ' is-done'}`}
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-labelledby={titleId}
         tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key !== 'Tab') return
-          const focusable = modalRef.current?.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-          )
-          if (!focusable?.length) return
-          const first = focusable[0]
-          const last = focusable[focusable.length - 1]
-          if (e.shiftKey && document.activeElement === first) {
-            e.preventDefault()
-            last.focus()
-          } else if (!e.shiftKey && document.activeElement === last) {
-            e.preventDefault()
-            first.focus()
-          }
-        }}
       >
         <div className="modal-head op-run-head">
           <span className={`op-run-mark ${tone}`} aria-hidden="true">
@@ -366,15 +373,17 @@ export default function OperationDialog({
             {status}
           </span>
           <span className="spacer" />
-          <button
-            className="ghost sm icon-btn"
-            onClick={onClose}
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            onClick={requestClose}
             disabled={!canHide}
             aria-label={closeText}
             title={closeText}
           >
             <Icon name="close" size={15} />
-          </button>
+          </Button>
         </div>
 
         <div className="op-run-body">
@@ -407,7 +416,7 @@ export default function OperationDialog({
           )}
 
           <div className="op-run-tabs" role="tablist" aria-label={`${title}信息`}>
-            <button
+            <Button
               type="button"
               role="tab"
               aria-selected={tab === 'detail'}
@@ -415,8 +424,8 @@ export default function OperationDialog({
               onClick={() => onTab('detail')}
             >
               {detailLabel}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="tab"
               aria-selected={tab === 'console'}
@@ -425,7 +434,7 @@ export default function OperationDialog({
             >
               {consoleLabel}
               <span className="op-run-count">{consoleLines.length}</span>
-            </button>
+            </Button>
             {running && showNet && net && (
               <span
                 className="op-run-net"
@@ -510,11 +519,12 @@ export default function OperationDialog({
         <div className="modal-foot">
           <div className="spacer" />
           {footer}
-          <button className="ghost" onClick={onClose} disabled={!canHide}>
+          <Button variant="ghost" onClick={requestClose} disabled={!canHide} title={closeText}>
+            {running && allowHideOnRun && <Icon name="minimize" size={13} />}
             {closeText}
-          </button>
+          </Button>
         </div>
-      </div>
+      </section>
     </div>,
     document.body,
   )

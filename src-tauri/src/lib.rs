@@ -9,6 +9,7 @@ mod cluster;
 mod commands;
 mod compat;
 mod config;
+mod db;
 mod error;
 mod git;
 mod gpu;
@@ -365,6 +366,10 @@ pub fn run() {
             commands::nodes::nodes_check_updates,
             commands::models::models_list,
             commands::models::models_copy,
+            commands::models::models_rename,
+            commands::models::models_mkdir,
+            commands::models::models_delete,
+            commands::models::models_paste,
             commands::diag::diag_scan,
             commands::instance::instance_import,
             commands::instance::instance_import_profile,

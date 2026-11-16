@@ -3,7 +3,7 @@
 //! 这里只放"可测试的同步本体"和文件环境操作；HTTP 控制面在 `cluster.rs`：
 //! Tauri 命令在`commands/cluster.rs`。两者都通过本模块的 `InstanceState` /
 //! `SyncManifest` 交换数据，避免把网络协议和业务逻辑搅在一起。
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -394,8 +394,12 @@ pub struct SyncModelFile {
     /// 相对模型库根目录，含类型前缀，如 checkpoints/SDXL/a.safetensors
     pub relative_path: String,
     pub size: u64,
+    /// 内容哈希；新清单不再预计算，仅旧清单/显式校验使用。
     #[serde(default)]
     pub sha256: Option<String>,
+    /// 路径 + 大小 + 修改时间的指纹，用来判断“是否变化”，不读文件内容。
+    #[serde(default)]
+    pub fingerprint: String,
     /// 仅源端清单里有；目标端不可用这个字段访问任意路径
     #[serde(default)]
     pub source_path: Option<String>,
@@ -909,11 +913,24 @@ fn sync_cache_info_at(root: &Path) -> SyncCacheInfo {
     let (inbox_bytes, inbox_count) = group_usage(&root.join("inbox"));
     let (backup_bytes, backup_count) = group_usage(&root.join("backups"));
     let (node_cache_bytes, node_cache_count) = node_cache_usage(&root.join("node-cache"));
-    let hash_cache_bytes = ["hash-cache.json", "hash-cache.json.bak"]
-        .iter()
-        .filter_map(|name| fs::metadata(root.join(name)).ok())
-        .map(|meta| meta.len())
-        .sum();
+    let legacy_hash_bytes: u64 = [
+        "hash-cache.json",
+        "hash-cache.json.migrated",
+        "hash-cache.json.bak",
+    ]
+    .iter()
+    .filter_map(|name| fs::metadata(root.join(name)).ok())
+    .map(|meta| meta.len())
+    .sum();
+    let hash_cache_bytes = if root == sync_root() {
+        crate::db::global()
+            .ok()
+            .and_then(|db| db.hash_cache_stats().ok())
+            .map(|(_, bytes)| bytes.saturating_add(legacy_hash_bytes))
+            .unwrap_or(legacy_hash_bytes)
+    } else {
+        legacy_hash_bytes
+    };
     SyncCacheInfo {
         total_bytes: tree_usage(&root),
         generation_bytes,
@@ -1020,6 +1037,11 @@ pub fn prune_sync_cache(keep: u32) -> SyncCachePrune {
     ] {
         total.removed += report.removed;
         total.freed_bytes = total.freed_bytes.saturating_add(report.freed_bytes);
+    }
+    if let Ok(db) = crate::db::global() {
+        if let Err(e) = db.generation_prune_missing() {
+            log::warn!("清理同步代次索引失败：{}", e.message);
+        }
     }
     total
 }
@@ -1197,18 +1219,65 @@ where
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// 模型/节点哈希缓存：键 = 绝对路径 + 大小 + 修改时间。
+/// 节点目录/下载载荷的哈希缓存：键 = 绝对路径 + 大小 + 修改时间。
 ///
-/// 大模型全量哈希很贵；缓存让第二次同步只做 stat。缓存本身落盘，启动器重启后仍然有效。
-fn hash_cache() -> &'static Mutex<HashMap<String, String>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+/// 内存里保留一份热数据；新算出的条目先标记 dirty，同步结束再批量写 SQLite。
+/// 旧 hash-cache.json 只在数据库为空时导入一次，之后不再整份重写。
+struct HashCache {
+    map: HashMap<String, String>,
+    dirty: HashSet<String>,
+}
+
+fn load_hash_cache(db: Option<&crate::db::Db>, legacy: &Path) -> HashMap<String, String> {
+    let map = db
+        .and_then(|db| db.hash_cache_load().ok())
+        .unwrap_or_default();
+    if !map.is_empty() {
+        return map;
+    }
+    // 数据库被删/损坏时，已经迁移过的 `.migrated` 仍可恢复这份热缓存。
+    let migrated = legacy.with_file_name("hash-cache.json.migrated");
+    let source = if legacy.exists() {
+        legacy.to_path_buf()
+    } else if migrated.exists() {
+        migrated.clone()
+    } else {
+        return map;
+    };
+    let Ok(raw) = fs::read_to_string(&source) else {
+        return map;
+    };
+    let Ok(imported) = serde_json::from_str::<HashMap<String, String>>(&raw) else {
+        return map;
+    };
+    if let Some(db) = db {
+        let entries: Vec<(String, String)> = imported
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        match db.hash_cache_put_many(&entries) {
+            Ok(()) => {
+                if source == legacy {
+                    let _ = fs::rename(legacy, &migrated);
+                }
+                log::info!("旧哈希缓存已导入 SQLite");
+            }
+            Err(e) => log::warn!("旧哈希缓存导入数据库失败：{}", e.message),
+        }
+    }
+    // 数据库导入失败时仍然用旧文件里的缓存，至少本次运行不必重算。
+    imported
+}
+
+fn hash_cache() -> &'static Mutex<HashCache> {
+    static CACHE: OnceLock<Mutex<HashCache>> = OnceLock::new();
     CACHE.get_or_init(|| {
-        let path = sync_root().join("hash-cache.json");
-        let map = fs::read_to_string(path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
-            .unwrap_or_default();
-        Mutex::new(map)
+        let db = crate::db::global().ok();
+        let map = load_hash_cache(db, &sync_root().join("hash-cache.json"));
+        Mutex::new(HashCache {
+            map,
+            dirty: HashSet::new(),
+        })
     })
 }
 
@@ -1226,26 +1295,24 @@ fn file_cache_key(path: &Path) -> Option<String> {
     Some(format!("{}|{}|{}", path_key, meta.len(), modified))
 }
 
-pub fn sha256_file_cached(path: &Path) -> Result<String, AppError> {
-    sha256_file_cached_with_progress(path, |_, _| Ok(()))
-}
-
 /// 目录一致性哈希用的文件哈希：文本文件先去掉 CR，再算 SHA-256。
 ///
 /// Windows 上 Git 的 autocrlf / patch 落盘可能把同一段文本写成 CRLF 或 LF；
 /// 原始字节哈希会把“内容相同、换行风格不同”误判成核心有改动，导致每次同步都
 /// 重复应用补丁，目标工作区还会因为再次 apply 失败。这里只对目录一致性哈希做
-/// 规范化；下载载荷的校验仍使用原始字节的 `sha256_file_cached`。
+/// 规范化；下载载荷的校验仍使用原始字节的 `sha256_file`。
 fn sha256_file_consistency_cached(path: &Path) -> Result<String, AppError> {
     let Some(raw_key) = file_cache_key(path) else {
         return sha256_file_consistency(path);
     };
     let key = format!("{raw_key}|lf");
-    if let Some(hit) = hash_cache().lock().get(&key) {
-        return Ok(hit.clone());
+    if let Some(hit) = hash_cache().lock().map.get(&key).cloned() {
+        return Ok(hit);
     }
     let hash = sha256_file_consistency(path)?;
-    hash_cache().lock().insert(key, hash.clone());
+    let mut cache = hash_cache().lock();
+    cache.map.insert(key.clone(), hash.clone());
+    cache.dirty.insert(key);
     Ok(hash)
 }
 
@@ -1264,33 +1331,37 @@ fn sha256_file_consistency(path: &Path) -> Result<String, AppError> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-fn sha256_file_cached_with_progress<F>(path: &Path, on_read: F) -> Result<String, AppError>
-where
-    F: FnMut(u64, u64) -> Result<(), AppError>,
-{
-    let Some(key) = file_cache_key(path) else {
-        return sha256_file_with_progress(path, on_read);
-    };
-    if let Some(hit) = hash_cache().lock().get(&key) {
-        return Ok(hit.clone());
-    }
-    let hash = sha256_file_with_progress(path, on_read)?;
-    hash_cache().lock().insert(key, hash.clone());
-    Ok(hash)
-}
-
 /// 下载时已经算过哈希，直接记入缓存，避免同步后再次读取整个文件。
 fn remember_file_hash(path: &Path, hash: &str) {
     if let Some(key) = file_cache_key(path) {
-        hash_cache().lock().insert(key, hash.to_string());
+        let mut cache = hash_cache().lock();
+        cache.map.insert(key.clone(), hash.to_string());
+        cache.dirty.insert(key);
     }
 }
 
 pub fn flush_hash_cache() {
-    let map = hash_cache().lock().clone();
-    if let Ok(text) = serde_json::to_string(&map) {
-        let _ = fs::create_dir_all(sync_root());
-        let _ = config::atomic_write(&sync_root().join("hash-cache.json"), text.as_bytes());
+    let batch: Vec<(String, String)> = {
+        let mut cache = hash_cache().lock();
+        let keys: Vec<String> = cache.dirty.drain().collect();
+        keys.into_iter()
+            .filter_map(|key| cache.map.get(&key).cloned().map(|hash| (key, hash)))
+            .collect()
+    };
+    if batch.is_empty() {
+        return;
+    }
+    let failed = match crate::db::global() {
+        Ok(db) => db.hash_cache_put_many(&batch).err(),
+        Err(e) => Some(e),
+    };
+    if let Some(e) = failed {
+        // 写库失败时把这些 key 放回 dirty，下次同步再试；缓存丢了也可重算。
+        let mut cache = hash_cache().lock();
+        for (key, _) in &batch {
+            cache.dirty.insert(key.clone());
+        }
+        log::warn!("哈希缓存写数据库失败：{}", e.message);
     }
 }
 
@@ -2666,7 +2737,7 @@ fn model_entries(
     inst: &InstanceConfig,
     settings: &GlobalSettings,
     prep: Option<&SyncPrepare>,
-) -> Result<Vec<(String, String, PathBuf, u64)>, AppError> {
+) -> Result<Vec<(String, String, PathBuf, u64, u64)>, AppError> {
     let plan = crate::storage::plan(inst, settings);
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut out = Vec::new();
@@ -2725,11 +2796,22 @@ fn model_entries(
             if !seen.insert(key) {
                 continue;
             }
-            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-            out.push((kind, relative, path.to_path_buf(), size));
+            let meta = entry.metadata().ok();
+            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+            let mtime_ms = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            out.push((kind, relative, path.to_path_buf(), size, mtime_ms));
         }
     }
     Ok(out)
+}
+
+fn model_fingerprint(relative_path: &str, size: u64, mtime_ms: u64) -> String {
+    sha256_bytes(format!("{}\0{}\0{}", relative_path.to_lowercase(), size, mtime_ms).as_bytes())
 }
 
 fn capture_models(
@@ -2744,7 +2826,7 @@ fn capture_models(
     })
 }
 
-/// 扫描模型时逐文件上报进度；大文件哈希按块检查取消，避免“点了停止还要等整块读完”。
+/// 扫描模型时逐文件上报元数据进度；不读取文件内容，取消检查只发生在遍历/stat 之间。
 fn capture_models_scoped(
     inst: &InstanceConfig,
     settings: &GlobalSettings,
@@ -2756,7 +2838,7 @@ fn capture_models_scoped(
         context.update("扫描模型", 13, "枚举模型目录", "统计文件数量与体积");
     }
     let entries = model_entries(inst, settings, prep)?;
-    let total_bytes: u64 = entries.iter().map(|(_, _, _, size)| *size).sum();
+    let total_bytes: u64 = entries.iter().map(|(_, _, _, size, _)| *size).sum();
     let total_count = entries.len();
     // 模型扫描同样只保留一行总范围；message 保持不变，进度写在 detail。
     let scan_label = if total_count > 0 {
@@ -2777,7 +2859,7 @@ fn capture_models_scoped(
     }
     let mut files = Vec::with_capacity(total_count);
     let mut done_bytes: u64 = 0;
-    for (index, (kind, relative_path, path, size)) in entries.into_iter().enumerate() {
+    for (index, (kind, relative_path, path, size, mtime_ms)) in entries.into_iter().enumerate() {
         if let Some(context) = prep {
             context.check()?;
             let percent = if total_bytes > 0 {
@@ -2789,34 +2871,16 @@ fn capture_models_scoped(
                 "扫描模型",
                 percent,
                 scan_label.clone(),
-                format!("准备读取 {}", relative_path),
+                format!("读取元数据 {}", relative_path),
             );
         }
-        let sha256 = match prep {
-            Some(context) => match sha256_file_cached_with_progress(&path, |read, total| {
-                context.check()?;
-                context.note(format!(
-                    "读取模型 {}/{}：{}（{}/{}）",
-                    index + 1,
-                    total_count.max(1),
-                    relative_path,
-                    human_bytes(read),
-                    human_bytes(total)
-                ));
-                Ok(())
-            }) {
-                Ok(hash) => Some(hash),
-                Err(error) if error.code == "SYNC_CANCELLED" => return Err(error),
-                Err(_) => None,
-            },
-            None => sha256_file_cached(&path).ok(),
-        };
         files.push(SyncModelFile {
             file_id: format!("m{:05}", index + 1),
             kind,
-            relative_path,
+            relative_path: relative_path.clone(),
             size,
-            sha256,
+            sha256: None,
+            fingerprint: model_fingerprint(&relative_path, size, mtime_ms),
             source_path: Some(path.to_string_lossy().to_string()),
         });
         done_bytes = done_bytes.saturating_add(size);
@@ -2848,12 +2912,31 @@ pub fn last_applied(instance_id: &str) -> Option<LastApplied> {
 }
 
 fn read_last_applied(instance_id: &str) -> Option<LastApplied> {
+    if let Ok(db) = crate::db::global() {
+        if let Ok(Some(raw)) = db.last_applied_get(instance_id) {
+            if let Ok(value) = serde_json::from_str::<LastApplied>(&raw) {
+                return Some(value);
+            }
+        }
+    }
+    // 旧 target-state.json 兜底，并在读取时顺手导入 SQLite。
     let raw = fs::read_to_string(target_state_path()).ok()?;
     let map: HashMap<String, LastApplied> = serde_json::from_str(&raw).ok()?;
-    map.get(instance_id).cloned()
+    let value = map.get(instance_id).cloned()?;
+    if let (Ok(db), Ok(text)) = (crate::db::global(), serde_json::to_string(&value)) {
+        let _ = db.last_applied_put(instance_id, &text);
+    }
+    Some(value)
 }
 
 fn write_last_applied(instance_id: &str, value: &LastApplied) -> Result<(), AppError> {
+    let text = serde_json::to_string(value)?;
+    if let Ok(db) = crate::db::global() {
+        match db.last_applied_put(instance_id, &text) {
+            Ok(()) => return Ok(()),
+            Err(e) => log::warn!("写目标端应用记录到数据库失败，回退 JSON：{}", e.message),
+        }
+    }
     let path = target_state_path();
     let mut map: HashMap<String, LastApplied> = fs::read_to_string(&path)
         .ok()
@@ -2904,7 +2987,7 @@ pub fn capture_instance_state(
 }
 
 /// 源端准备专用：只采集勾选的内容组。未勾选的组不扫描，尤其不会为了同步节点而
-/// 去哈希整个模型库。准备线程可以取消，所以这里返回 Result。
+/// 去扫描整个模型库。准备线程可以取消，所以这里返回 Result。
 pub fn capture_instance_state_scoped(
     inst: &InstanceConfig,
     settings: &GlobalSettings,
@@ -2998,7 +3081,7 @@ pub fn capture_instance_state_scoped(
     })
 }
 
-/// 给目标端/预览用的轻量状态，模型只记路径、大小、已有缓存哈希。
+/// 给目标端/预览用的轻量状态，模型只记路径、大小、修改时间指纹。
 pub fn capture_target_state(inst: &InstanceConfig, settings: &GlobalSettings) -> InstanceState {
     let state = capture_instance_state(inst, settings, None, true);
     state
@@ -3056,7 +3139,7 @@ pub fn required_space(diff: &SyncDiff, totals: &SyncTotals) -> u64 {
 
 /// 指纹算法一旦改变（例如从整文件内容改成单文件哈希组合），历史lastApplied
 /// 就不能再直接比较；带版本前缀能避免升级后误报/漏报目标漂移。
-const FINGERPRINT_VERSION: &str = "v3:";
+const FINGERPRINT_VERSION: &str = "v4:";
 
 pub fn state_fingerprint(state: &InstanceState) -> String {
     state_fingerprint_scoped(state, SyncScope::all())
@@ -3124,7 +3207,12 @@ pub fn state_fingerprint_scoped(state: &InstanceState, scope: SyncScope) -> Stri
             text.push(':');
             text.push_str(&model.size.to_string());
             text.push(':');
-            text.push_str(model.sha256.as_deref().unwrap_or(""));
+            let marker = if !model.fingerprint.is_empty() {
+                model.fingerprint.as_str()
+            } else {
+                model.sha256.as_deref().unwrap_or("")
+            };
+            text.push_str(marker);
             text.push(';');
         }
     }
@@ -3168,7 +3256,7 @@ pub fn preparation_fingerprint(
         "keepOldVenvDays": settings.sync.keep_old_venv_days,
     });
     let text = serde_json::to_string(&payload).unwrap_or_default();
-    format!("sp1:{}", sha256_bytes(text.as_bytes()))
+    format!("sp2:{}", sha256_bytes(text.as_bytes()))
 }
 
 fn manifest_artifacts_exist(manifest: &SyncManifest) -> bool {
@@ -3256,6 +3344,17 @@ fn wheel_delta(w: &CustomWheel) -> WheelDelta {
         reason: w.missing_reason.clone(),
         incompatible: w.incompatible,
         compat_warning: w.compat_warning.clone(),
+    }
+}
+
+fn same_model(source: &SyncModelFile, target: &SyncModelFile) -> bool {
+    if !source.fingerprint.is_empty() && !target.fingerprint.is_empty() {
+        return source.fingerprint.eq_ignore_ascii_case(&target.fingerprint);
+    }
+    // 旧清单没有指纹：退回内容哈希；两边都没有证据时按“未变化”处理。
+    match (&source.sha256, &target.sha256) {
+        (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() => a.eq_ignore_ascii_case(b),
+        _ => true,
     }
 }
 
@@ -3588,6 +3687,7 @@ pub fn diff_states_with_scope(
             .iter()
             .map(|m| (m.relative_path.to_lowercase(), m))
             .collect();
+        let same_store = same_model_store(&source.model_store_id, &target.model_store_id);
         for (key, model) in &source_models {
             match target_models.get(key) {
                 None => {
@@ -3602,11 +3702,15 @@ pub fn diff_states_with_scope(
                     out.models.transfer_bytes += model.size;
                 }
                 Some(prev) => {
-                    let hash_differs = match (&prev.sha256, &model.sha256) {
-                        (Some(a), Some(b)) => a != b,
-                        _ => false,
+                    let changed = if prev.size != model.size {
+                        true
+                    } else if same_store {
+                        // 同一个物理模型库：路径和大小一致就是同一份文件。
+                        false
+                    } else {
+                        !same_model(prev, model)
                     };
-                    if prev.size != model.size || hash_differs {
+                    if changed {
                         out.models.modified.push(ModelChange {
                             kind: model.kind.clone(),
                             relative_path: model.relative_path.clone(),
@@ -3637,7 +3741,8 @@ pub fn diff_states_with_scope(
         }
     }
 
-    // 模型库是“同一物理共享目录”时，路径相同、哈希相同会自然命中 unchanged：    // 如果双方 marker id 一致，额外提示可以零拷贝。
+    // 模型库是“同一物理共享目录”时，路径相同、指纹相同会自然命中 unchanged：
+    // 如果双方 marker id 一致，额外提示可以零拷贝。
     if scope.models && same_model_store(&source.model_store_id, &target.model_store_id) {
         out.warnings
             .push("源端与目标端模型库是同一个物理目录：模型文件无需传输，只做清单核对".to_string());
@@ -4384,8 +4489,25 @@ pub fn load_manifest(generation_id: &str) -> Result<SyncManifest, AppError> {
 }
 
 pub fn save_manifest(manifest: &SyncManifest) -> Result<(), AppError> {
-    let path = generation_dir(&manifest.generation_id).join("manifest.json");
-    config::atomic_write(&path, serde_json::to_string_pretty(manifest)?.as_bytes())
+    let dir = generation_dir(&manifest.generation_id);
+    let path = dir.join("manifest.json");
+    config::atomic_write(&path, serde_json::to_string_pretty(manifest)?.as_bytes())?;
+    if let Ok(db) = crate::db::global() {
+        if let Err(e) = db.generation_upsert(
+            &manifest.generation_id,
+            &manifest.created_at,
+            &manifest.source_instance_id,
+            &manifest.source_instance_name,
+            &dir,
+        ) {
+            log::warn!(
+                "同步代次索引写入失败 {}：{}",
+                manifest.generation_id,
+                e.message
+            );
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------- 目标端应用
@@ -5752,7 +5874,19 @@ fn apply_models(
                     );
                 }),
             )?;
-            let actual_size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(model.size);
+            let actual_size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+            if model.size > 0 && actual_size != model.size {
+                let _ = fs::remove_file(&dest);
+                return Err(AppError::new(
+                    "SYNC_MODEL_SIZE",
+                    format!(
+                        "模型大小不一致：{}（期望 {}，实际 {}）",
+                        model.relative_path,
+                        human_bytes(model.size),
+                        human_bytes(actual_size)
+                    ),
+                ));
+            }
             done_bytes = done_bytes.saturating_add(actual_size);
             let pct = if total_bytes > 0 {
                 (MODEL_PCT_START + done_bytes.min(total_bytes) * MODEL_PCT_SPAN / total_bytes) as u8
@@ -7447,6 +7581,58 @@ mod tests {
     }
 
     #[test]
+    fn model_fingerprint_uses_metadata_not_content() {
+        let a = model_fingerprint("checkpoints/A.bin", 10, 1_700_000_000_000);
+        assert_eq!(
+            a,
+            model_fingerprint("CHECKPOINTS/a.bin", 10, 1_700_000_000_000),
+            "路径大小写不影响指纹"
+        );
+        assert_ne!(
+            a,
+            model_fingerprint("checkpoints/a.bin", 11, 1_700_000_000_000),
+            "大小变化要报变化"
+        );
+        assert_ne!(
+            a,
+            model_fingerprint("checkpoints/a.bin", 10, 1_700_000_000_001),
+            "修改时间变化要报变化"
+        );
+
+        let source = SyncModelFile {
+            file_id: "m1".into(),
+            relative_path: "checkpoints/a.bin".into(),
+            size: 10,
+            fingerprint: a.clone(),
+            ..Default::default()
+        };
+        let mut target = SyncModelFile {
+            file_id: "m1".into(),
+            relative_path: "checkpoints/a.bin".into(),
+            size: 10,
+            fingerprint: a,
+            sha256: Some("different-content".into()),
+            ..Default::default()
+        };
+        assert!(same_model(&source, &target), "有指纹时优先比指纹");
+
+        target.fingerprint = model_fingerprint("checkpoints/a.bin", 10, 1_700_000_000_001);
+        assert!(!same_model(&source, &target));
+
+        let old_a = SyncModelFile {
+            size: 10,
+            sha256: Some("a".into()),
+            ..Default::default()
+        };
+        let old_b = SyncModelFile {
+            size: 10,
+            sha256: Some("b".into()),
+            ..Default::default()
+        };
+        assert!(!same_model(&old_a, &old_b), "旧清单仍按内容哈希比较");
+    }
+
+    #[test]
     fn package_diff_ignores_local_build_tag_when_only_one_side_has_it() {
         let mut source = InstanceState::default();
         source
@@ -7962,6 +8148,7 @@ mod tests {
             remote: None,
             imported: false,
             state: config::InstanceState::Stopped,
+            last_error: None,
             created_at: String::new(),
             last_started_at: None,
         };
@@ -7995,6 +8182,7 @@ mod tests {
             relative_path: "checkpoints/direct.bin".to_string(),
             size: body.len() as u64,
             sha256: Some(expected.clone()),
+            fingerprint: String::new(),
             source_path: None,
         });
         let mut progress = Vec::new();
@@ -8021,9 +8209,10 @@ mod tests {
         assert_eq!(
             hash_cache()
                 .lock()
+                .map
                 .get(&file_cache_key(&dest).unwrap())
-                .map(String::as_str),
-            Some(expected.as_str())
+                .cloned(),
+            Some(expected.clone())
         );
         let _ = fs::remove_dir_all(&root);
     }
@@ -8070,9 +8259,33 @@ mod tests {
         );
         let key = file_cache_key(&dest).unwrap();
         assert_eq!(
-            hash_cache().lock().get(&key).map(String::as_str),
-            Some(expected.as_str())
+            hash_cache().lock().map.get(&key).cloned(),
+            Some(expected.clone())
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn legacy_hash_cache_imports_into_database_once() {
+        let root = std::env::temp_dir().join(format!("cf-hash-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let legacy = root.join("hash-cache.json");
+        fs::write(&legacy, "{\"a|1|2\":\"abcd\",\"b|1|2\":\"efgh\"}").unwrap();
+        let db = crate::db::Db::open(&root.join("comfyfleet.db")).unwrap();
+        let map = load_hash_cache(Some(&db), &legacy);
+        assert_eq!(map.get("a|1|2").map(String::as_str), Some("abcd"));
+        assert_eq!(
+            db.hash_cache_load()
+                .unwrap()
+                .get("a|1|2")
+                .map(String::as_str),
+            Some("abcd")
+        );
+        assert!(!legacy.exists());
+        assert!(root.join("hash-cache.json.migrated").exists());
+        // 再次加载直接读数据库，不依赖旧文件。
+        let again = load_hash_cache(Some(&db), &legacy);
+        assert_eq!(again.get("b|1|2").map(String::as_str), Some("efgh"));
         let _ = fs::remove_dir_all(&root);
     }
 

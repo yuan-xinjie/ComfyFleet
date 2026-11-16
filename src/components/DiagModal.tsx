@@ -1,3 +1,4 @@
+import Button from './Button'
 import { useCallback, useEffect, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type { DepsReport, DiagReport, InstanceConfig } from '../types'
@@ -95,13 +96,13 @@ export default function DiagModal({ inst, notify, onClose, onInstall }: Props) {
             </span>
           )}
           <div className="spacer" />
-          <button className="ghost sm" onClick={() => void scan()} disabled={loading}>
+          <Button className="ghost sm" onClick={() => void scan()} disabled={loading}>
             <Icon name="refresh" size={13} />
             {loading ? '检测中…' : '重新检测'}
-          </button>
-          <button className="icon-btn" onClick={onClose} title="关闭" aria-label="关闭">
+          </Button>
+          <Button className="icon-btn" onClick={onClose} title="关闭" aria-label="关闭">
             <Icon name="close" size={16} />
-          </button>
+          </Button>
         </div>
 
         <div className="modal-body">
@@ -153,10 +154,10 @@ export default function DiagModal({ inst, notify, onClose, onInstall }: Props) {
                   )}
                   <div className="spacer" />
                   {pendingNodes > 0 && (
-                    <button className="primary sm" onClick={() => onInstall(null)}>
+                    <Button className="primary sm" onClick={() => onInstall(null)}>
                       <Icon name="download" size={13} />
                       全部补依赖
-                    </button>
+                    </Button>
                   )}
                 </div>
 
@@ -189,9 +190,9 @@ export default function DiagModal({ inst, notify, onClose, onInstall }: Props) {
                       <span className={`badge ${d.enabled ? 'ok' : 'idle'}`}>{d.enabled ? '启用' : '禁用'}</span>
                       <span className="badge warn">{d.pending.length} 个要装</span>
                       <div className="spacer" />
-                      <button className="ghost sm" onClick={() => onInstall([d.name])}>
+                      <Button className="ghost sm" onClick={() => onInstall([d.name])}>
                         补依赖
-                      </button>
+                      </Button>
                     </div>
                     <ul className="deps-list">
                       {d.pending.map((line) => (
@@ -247,9 +248,9 @@ export default function DiagModal({ inst, notify, onClose, onInstall }: Props) {
                         <div className="hint">
                           <strong>怎么办：</strong>
                           {issue.suggestion}
-                          <button className="link-inline" onClick={() => void copy(issue.suggestion)}>
+                          <Button className="link-inline" onClick={() => void copy(issue.suggestion)}>
                             复制
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -270,9 +271,9 @@ export default function DiagModal({ inst, notify, onClose, onInstall }: Props) {
 
         <div className="modal-foot">
           <div className="spacer" />
-          <button className="ghost" onClick={onClose}>
+          <Button className="ghost" onClick={onClose}>
             关闭
-          </button>
+          </Button>
         </div>
       </div>
     </div>

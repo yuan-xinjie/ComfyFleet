@@ -162,6 +162,157 @@ input.color-chip::-webkit-color-swatch { border: 0; border-radius: 6px; }
   padding-bottom: 2px;
 }
 
+.island-settings-body { container-type: inline-size; }
+
+.island-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: start;
+  gap: 22px;
+  min-width: 0;
+}
+
+.island-settings-sections {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.island-settings-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.island-settings-section + .island-settings-section {
+  padding-top: 16px;
+  border-top: 1px solid var(--line-2);
+}
+
+.island-settings-section h3 {
+  margin: 0;
+  color: var(--ink-4);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.island-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  align-items: start;
+  gap: 14px 18px;
+  min-width: 0;
+}
+
+.island-settings-grid > .field { min-width: 0; }
+.island-settings-grid .card-alpha-field { grid-column: auto; }
+.island-settings-grid .island-speed-field,
+.island-settings-grid .island-glow-range-field,
+.island-settings-grid .island-bottom-field { grid-column: 1 / -1; }
+
+.island-shape-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.island-inset-field {
+  margin-top: 10px;
+}
+
+.island-shape-option {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px 8px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--hover-1);
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.island-shape-option:hover {
+  border-color: var(--line);
+  background: var(--hover-2);
+  color: var(--ink-2);
+}
+
+.island-shape-option.is-active {
+  border-color: color-mix(in srgb, var(--blue) 46%, transparent);
+  background: var(--blue-wash);
+  color: var(--ink);
+}
+
+.island-shape-tile {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 38px;
+  border-radius: 999px;
+  background: #07080b;
+}
+
+.island-shape-tile .island-shape {
+  width: 90px;
+  max-width: 100%;
+  animation: none;
+  transform: scale(0.82);
+}
+
+.island-shape-tile .island-shape.is-chevrons,
+.island-shape-tile .island-shape.is-targets {
+  width: 74px;
+}
+
+.island-shape-tile .island-shape i {
+  animation: none;
+}
+
+.island-shape-option-label {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.island-settings-preview {
+  --island-ink: #f5f6fb;
+  --island-ink-2: #aab3c9;
+  --island-blue: #8fb8ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 210px;
+  padding: 24px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--hover-1);
+}
+
+.island-settings-preview .island-idle {
+  max-width: 100%;
+  cursor: default;
+  pointer-events: none;
+}
+
+@container (max-width: 760px) {
+  .island-settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .island-settings-preview {
+    order: -1;
+    min-height: 108px;
+    padding: 20px;
+  }
+}
+
+@container (max-width: 500px) {
+  .island-settings-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 .card-alpha-field { grid-column: 1 / -1; gap: 7px; }
 .card-alpha-field > span:first-child {
   display: flex;
@@ -795,6 +946,40 @@ pre.console-log {
   min-width: 0;
 }
 
+.pop-presence {
+  display: inline-flex;
+  flex: none;
+  transform-origin: center;
+  animation: bottom-pop-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.pop-presence.is-leaving {
+  pointer-events: none;
+  animation: bottom-pop-out 140ms var(--ease) forwards;
+}
+
+@keyframes bottom-pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.72);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes bottom-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.72);
+  }
+}
+
 /* 首页底栏是状态栏：本机硬件在左，数据目录与版本在右。
    实例页底栏放操作，两者共用同一条 48px 底座。 */
 .home-status {
@@ -957,7 +1142,8 @@ pre.console-log {
 @media (prefers-reduced-motion: reduce) {
   .instance-save-state,
   .instance-save-state > .badge,
-  .bottombar-label {
+  .bottombar-label,
+  .pop-presence {
     transition: none;
     animation: none;
   }
@@ -967,8 +1153,6 @@ pre.console-log {
     transition: none;
   }
 }
-
-.toast { bottom: 60px; }
 
 /* ---------------------------------------------------------- 快照（对齐 ComfyUI Desktop 时间线） */
 
@@ -1306,6 +1490,47 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
 .snap-report-body { display: grid; gap: 2px; margin-top: 6px; }
 .snap-report-warn { font-size: 11.5px; color: var(--orange); overflow-wrap: anywhere; }
 .snap-report-note { font-size: 11.5px; color: var(--ink-4); overflow-wrap: anywhere; }
+
+/* 操作详情：从任务条展开的底部窗口，和控制台保持同一种展开方式。 */
+.op-dock-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 47;
+  pointer-events: none;
+}
+
+.op-dock-scrim {
+  position: fixed;
+  inset: 88px 0 48px;
+  pointer-events: auto;
+}
+
+.modal.op-dock-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  z-index: 47;
+  width: min(1120px, calc(100vw - 48px));
+  height: min(78vh, 760px);
+  max-height: calc(100vh - 112px);
+  transform: translateX(-50%);
+  animation: none;
+  pointer-events: auto;
+}
+
+.modal.op-dock-panel.is-done {
+  height: auto;
+}
+
+.modal.op-dock-panel:focus {
+  outline: none;
+}
+
+@media (max-width: 1100px) {
+  .modal.op-dock-panel {
+    width: calc(100vw - 40px);
+  }
+}
 
 /* 恢复执行详情：进度、结果与控制台放在同一个窗口。 */
 .modal.op-run-modal {

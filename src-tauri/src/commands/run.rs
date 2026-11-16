@@ -28,11 +28,31 @@ fn set_state(id: &str, new: InstanceState, last_started: Option<String>) {
         }
     };
     cfg.state = new;
+    if !matches!(cfg.state, InstanceState::Error) {
+        cfg.last_error = None;
+    }
     if last_started.is_some() {
         cfg.last_started_at = last_started;
     }
     if let Err(e) = save_instance(&cfg) {
         log::warn!("写回实例{id} 状态失败：{}", e.message);
+    }
+}
+
+/// 进入 Error 时把可读原因一起落盘，卡片悬浮和详情弹窗都靠它解释。
+fn set_error_state(id: &str, detail: impl Into<String>) {
+    let _guard = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cfg = match load_instance(id) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("更新实例{id} 错误状态失败：{}", e.message);
+            return;
+        }
+    };
+    cfg.state = InstanceState::Error;
+    cfg.last_error = Some(detail.into());
+    if let Err(e) = save_instance(&cfg) {
+        log::warn!("写回实例{id} 错误状态失败：{}", e.message);
     }
 }
 
@@ -120,7 +140,12 @@ fn launch_instance_locked(
         ));
     }
     // 检查与插入 runs 不是原子操作；先拿每实例操作锁，挡住并发启动/安装。
-    let _op = OpGuard::acquire(instance_id, if manual { "启动" } else { "自动重启" })?;
+    // 概览页打开时会自动重读环境，用户紧接着点启动不能因此报忙；只等这个短操作。
+    let _op = if manual {
+        OpGuard::acquire_waiting_for(instance_id, "启动", "重读环境", Duration::from_secs(30))?
+    } else {
+        OpGuard::acquire(instance_id, "自动重启")?
+    };
     if state.is_shutting_down() {
         return Err(AppError::new(
             "APP_SHUTTING_DOWN",
@@ -461,7 +486,15 @@ fn monitor_once(
                 if ready {
                     set_state(id, InstanceState::Stopped, None);
                 } else {
-                    set_state(id, InstanceState::Error, None);
+                    let tail = handle.tail(25).join("\n");
+                    set_error_state(
+                        id,
+                        if tail.trim().is_empty() {
+                            format!("ComfyUI 启动失败，退出码 {code}")
+                        } else {
+                            format!("ComfyUI 启动失败，退出码 {code}\n\n{tail}")
+                        },
+                    );
                 }
             }
             if ready {
@@ -519,12 +552,25 @@ fn monitor_once(
             // 不杀进程：首次加载模型可能很慢；但必须把“启动超时”显式写进状态，
             // 否则界面永远停在 Starting。之后继续监控，进程退出时仍能收尾/重启。
             late = true;
-            set_state(id, InstanceState::Error, None);
+            let tail = handle.tail(25).join("\n");
+            set_error_state(
+                id,
+                if tail.trim().is_empty() {
+                    format!(
+                        "启动超时：{} 秒内没有等到 ComfyUI 就绪，进程仍在运行",
+                        READY_TIMEOUT.as_secs()
+                    )
+                } else {
+                    format!(
+                        "启动超时：{} 秒内没有等到 ComfyUI 就绪，进程仍在运行\n\n{tail}",
+                        READY_TIMEOUT.as_secs()
+                    )
+                },
+            );
             log::warn!(
                 "instance {id} still starting after {}s; keeping process alive and monitoring",
                 READY_TIMEOUT.as_secs()
             );
-            let tail = handle.tail(25).join("\n");
             crate::activity::record(id, "start", "warn", "启动超时，进程仍在运行", Some(tail));
         }
     }
@@ -659,7 +705,8 @@ pub fn stop_instance(state: &AppState, instance_id: &str) -> Result<(), AppError
     // 监督线程在下一次检查时退出，不会出现“点了停止却又被拉起来”。
     // 即使停止失败也保留标记，直到用户再次手动启动。
     state.request_stop(instance_id);
-    let _op = OpGuard::acquire(instance_id, "停止")?;
+    let _op =
+        OpGuard::acquire_waiting_for(instance_id, "停止", "重读环境", Duration::from_secs(30))?;
     stop_instance_unlocked(state, instance_id)
 }
 
@@ -684,11 +731,11 @@ pub(crate) fn stop_instance_unlocked(state: &AppState, instance_id: &str) -> Res
                 // 不能假装已停止：进程可能还占着端口和文件。把句柄放回去，
                 // 状态标 Error，让用户/托盘可以重试停止。
                 state.runs.lock().insert(instance_id.to_string(), h.clone());
-                set_state(instance_id, InstanceState::Error, None);
                 let detail = kill_result
                     .err()
                     .map(|e| e.message)
                     .unwrap_or_else(|| "进程在 5 秒内没有退出".to_string());
+                set_error_state(instance_id, format!("停止失败：{detail}"));
                 crate::activity::record(
                     instance_id,
                     "stop",
@@ -890,7 +937,13 @@ pub fn shutdown_all(app: &AppHandle) {
         };
         for (id, h) in handles {
             log::info!("shutdown: stopping instance {} (pid {})", id, h.pid);
-            let _ = h.kill_tree();
+            match h.kill_tree() {
+                Ok(()) => set_state(&id, InstanceState::Stopped, None),
+                Err(e) => set_error_state(
+                    &id,
+                    format!("应用退出时停止实例失败：{}", e.message),
+                ),
+            }
             runtime::remove_record(&crate::config::instances_dir().join(&id));
         }
     }
@@ -930,12 +983,18 @@ pub fn recover_orphans() {
                         // 没有记录不代表进程一定不存在（可能在写记录前被强杀）。
                         // 不能谎报 Stopped，否则用户再启动会撞端口；标记 Error 让用户先确认。
                         cfg.state = InstanceState::Error;
+                        cfg.last_error = Some(
+                            "应用启动时发现上次运行没有正常收尾，且运行记录已丢失。请启动实例重新检查；如果反复出现，可能是应用被强制结束。"
+                                .to_string(),
+                        );
                         let _ = save_instance(&cfg);
                         log::warn!("实例{id} 状态停在运行中但运行记录缺失，已标记 Error");
                     }
                     InstanceState::Installing | InstanceState::Updating => {
                         // 上次安装/更新被强杀：venv 可能半写，不能谎报 Ready/Stopped。
                         cfg.state = InstanceState::Error;
+                        cfg.last_error =
+                            Some("上次安装或更新没有完成，环境可能只写了一半。请重新安装环境。".to_string());
                         let _ = save_instance(&cfg);
                         log::warn!("实例{id} 上次安装/更新中断，已标记 Error");
                     }
@@ -965,15 +1024,18 @@ pub fn recover_orphans() {
 
         runtime::remove_record(&inst_dir);
         if let Ok(mut cfg) = load_instance(&id) {
-            cfg.state = if matches!(
+            if matches!(
                 cfg.state,
                 InstanceState::Installing | InstanceState::Updating
             ) {
                 // 安装时被强杀，文件可能不完整；保留可重试的错误态，而不是伪装成 stopped。
-                InstanceState::Error
+                cfg.state = InstanceState::Error;
+                cfg.last_error =
+                    Some("上次安装或更新没有完成，环境可能只写了一半。请重新安装环境。".to_string());
             } else {
-                InstanceState::Stopped
-            };
+                cfg.state = InstanceState::Stopped;
+                cfg.last_error = None;
+            }
             let _ = save_instance(&cfg);
         }
     }
@@ -1015,6 +1077,7 @@ mod tests {
             remote: None,
             imported: false,
             state: InstanceState::Stopped,
+            last_error: None,
             created_at: "2026-10-28T00:00:00Z".to_string(),
             last_started_at: None,
         }

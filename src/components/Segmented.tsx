@@ -1,3 +1,4 @@
+import Button from './Button'
 import {
   useCallback,
   useEffect,
@@ -98,7 +99,7 @@ export default function Segmented<T extends string>({
         aria-hidden="true"
       />
       {options.map((option) => (
-        <button
+        <Button
           key={option.value}
           type="button"
           role={buttonRole}
@@ -107,7 +108,7 @@ export default function Segmented<T extends string>({
           onClick={() => onChange(option.value)}
         >
           {option.label}
-        </button>
+        </Button>
       ))}
     </span>
   )

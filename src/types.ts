@@ -138,6 +138,14 @@ export interface ModelCopyResult {
   errors: string[]
 }
 
+/** 模型目录内的单项/多项操作结果；done/skipped/failed 都按顶层层级算 */
+export interface ModelOpResult {
+  done: number
+  skipped: number
+  failed: number
+  errors: string[]
+}
+
 export interface InstallOpts {
   pypiFallback: boolean
   allowInstallScript: boolean
@@ -162,6 +170,9 @@ export interface ThemePalette {
   cardColor: string
 }
 
+export type IslandIdleContent = 'animation' | 'time' | 'custom'
+export type IslandIdleShape = 'chevrons' | 'targets'
+
 export interface UiOpts {
   theme: 'light' | 'dark'
   locale: 'zh-CN' | 'en-US'
@@ -170,6 +181,32 @@ export interface UiOpts {
   light: ThemePalette
   /** 卡片透明度百分比：0 为不透明，80 为最透 */
   cardTransparency: number
+  /** 空闲任务条：auto = 自动隐藏，指针靠近底部时出现；always = 常驻 */
+  taskBarIdle: 'auto' | 'always'
+  /** 成功任务与操作通知的停留秒数（1–5）。 */
+  noticeSeconds: number
+  /** 无任务时显示动画、时间或自定义内容。 */
+  islandIdleContent: IslandIdleContent
+  /** 无任务动画的默认形态。 */
+  islandIdleShape: IslandIdleShape
+  /** 空闲胶囊宽度（64–200px）。 */
+  islandWidth: number
+  /** 空闲动画速度（50–200%）。 */
+  islandAnimationSpeed: number
+  /** 默认形态与胶囊两侧的距离（4–20px）。 */
+  islandShapeInset: number
+  /** 两侧形态与操作按钮的间距（0–30px）。 */
+  islandShapeActionGap: number
+  /** 灵动岛底边距离窗口底部（8–160px）。 */
+  islandBottomGap: number
+  /** 外发光。 */
+  islandGlow: boolean
+  /** 默认发光颜色。 */
+  islandGlowColor: string
+  /** 发光范围（8–80px）。 */
+  islandGlowRange: number
+  /** 自定义空闲内容。 */
+  islandIdleText: string
 }
 
 export interface ActivityOpts {
@@ -308,6 +345,8 @@ export interface InstanceConfig {  id: string
   remote: RemoteTarget | null
   imported: boolean
   state: InstanceState
+  /** 最近一次出错/启动超时的原因；成功启动或停止后清空。 */
+  lastError: string | null
   createdAt: string
   lastStartedAt: string | null
 }

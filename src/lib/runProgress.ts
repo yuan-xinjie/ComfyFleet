@@ -43,13 +43,26 @@ export function parseTqdm(line: string): TqdmInfo | null {
   }
   const prefix = line.slice(0, m.index).split('\r').pop() ?? ''
   const desc = prefix.trim().replace(/^\[[^\]]{1,40}\]\s*/, '').trim()
-  const postfix = m[4].trim()
+  // ComfyUI 的模型初始化状态可能写在括号里的速度后面，也可能落在右括号之后。
+  const postfix = [m[4].trim(), line.slice(m.index + m[0].length).trim()]
+    .filter(Boolean)
+    .join(' ')
   return { value, max, speed, desc, postfix }
 }
 
 /** tqdm 的说明可能在前面，也可能像 ComfyUI 一样跟在速度后面。 */
 export function tqdmStageText(p: TqdmInfo): string {
   return [p.desc, p.postfix].filter(Boolean).join(' ')
+}
+
+/** 把内部阶段名转成任务条上的说法；模型加载阶段实际是在初始化模型。 */
+export function stageLabel(stage: string): string {
+  if (stage === '加载模型') return '正在初始化模型'
+  if (stage === '采样') return '正在采样'
+  if (stage === '编码') return '正在 VAE 编码'
+  if (stage === '解码') return '正在 VAE 解码'
+  if (stage === '准备') return '正在准备'
+  return '正在执行'
 }
 
 export function stageFromText(text: string, fallback: string): string {
@@ -92,8 +105,11 @@ export function isTaskStart(line: string): boolean {
 }
 
 export function progressFromTqdm(p: TqdmInfo, stage: string): RunProgress {
+  const label = stageLabel(stage)
+  const hasSteps = stage === '采样' || stage === '编码' || stage === '解码'
+  const step = hasSteps ? ` ${Math.round(p.value)}/${Math.round(p.max)}` : ''
   return {
-    what: stage === '采样' ? `正在采样 ${Math.round(p.value)}/${Math.round(p.max)}` : `正在${stage}`,
+    what: `${label}${step}`,
     value: p.value,
     max: p.max,
     speed: p.speed,

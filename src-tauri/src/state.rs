@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
@@ -15,8 +16,16 @@ use crate::runtime::ProcHandle;
 /// 锁在进程内全局存在，RAII 释放，避免异常路径忘了解锁。
 static OPS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
+#[derive(Debug)]
 pub struct OpGuard {
     id: String,
+}
+
+fn busy_error(current: &str, kind: &str) -> AppError {
+    AppError::new(
+        "INSTANCE_BUSY",
+        format!("这个实例正在{current}，等它结束再操作（当前请求：{kind}）"),
+    )
 }
 
 impl OpGuard {
@@ -24,13 +33,39 @@ impl OpGuard {
         let mut slot = OPS.lock();
         let map = slot.get_or_insert_with(HashMap::new);
         if let Some(current) = map.get(id) {
-            return Err(AppError::new(
-                "INSTANCE_BUSY",
-                format!("这个实例正在{current}，等它结束再操作（当前请求：{kind}）"),
-            ));
+            return Err(busy_error(current, kind));
         }
         map.insert(id.to_string(), kind.to_string());
         Ok(Self { id: id.to_string() })
+    }
+
+    /// 只在占用者是某个短操作时等待，其他长操作仍然立即报忙。
+    /// 用于启动/停止不要被“重读环境”这种探测挡住。
+    pub fn acquire_waiting_for(
+        id: &str,
+        kind: &str,
+        allowed_current: &str,
+        timeout: Duration,
+    ) -> Result<Self, AppError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            {
+                let mut slot = OPS.lock();
+                let map = slot.get_or_insert_with(HashMap::new);
+                match map.get(id) {
+                    None => {
+                        map.insert(id.to_string(), kind.to_string());
+                        return Ok(Self { id: id.to_string() });
+                    }
+                    Some(current) if current == allowed_current => {}
+                    Some(current) => return Err(busy_error(current, kind)),
+                }
+            }
+            if Instant::now() >= deadline {
+                return Err(busy_error(allowed_current, kind));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 }
 
@@ -128,5 +163,32 @@ impl AppState {
 
     pub fn is_shutting_down(&self) -> bool {
         self.shutting_down.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_can_wait_for_env_refresh() {
+        let id = "test-wait-env-refresh";
+        let env = OpGuard::acquire(id, "重读环境").unwrap();
+        let waiter = std::thread::spawn(move || {
+            OpGuard::acquire_waiting_for(id, "启动", "重读环境", Duration::from_secs(2)).is_ok()
+        });
+        std::thread::sleep(Duration::from_millis(80));
+        drop(env);
+        assert!(waiter.join().unwrap());
+    }
+
+    #[test]
+    fn start_still_rejects_other_operations() {
+        let id = "test-wait-other-op";
+        let install = OpGuard::acquire(id, "安装").unwrap();
+        let err = OpGuard::acquire_waiting_for(id, "启动", "重读环境", Duration::from_secs(1))
+            .unwrap_err();
+        assert_eq!(err.code, "INSTANCE_BUSY");
+        drop(install);
     }
 }

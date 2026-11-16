@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import Button from './Button'
+import { useMemo, useState } from 'react'
 import type { EnvReport, RepoWheel } from '../types'
 import Icon from './Icon'
+import Modal from './Modal'
 import Select from './Select'
 import {
   EMPTY_FILTERS,
@@ -52,7 +53,6 @@ export default function WheelPackageDialog({
   onDownload,
   onInstall,
 }: Props) {
-  const dialogRef = useRef<HTMLDivElement>(null)
   const [selectedPath, setSelectedPath] = useState('')
   const [filters, setFilters] = useState<WheelFilters>(EMPTY_FILTERS)
 
@@ -81,41 +81,17 @@ export default function WheelPackageDialog({
     })
   }
 
-  useEffect(() => {
-    const node = dialogRef.current
-    if (!node) return
-    const previous = document.activeElement as HTMLElement | null
-    node.focus()
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      previous?.focus()
-    }
-  }, [onClose])
-
   const selectWheel = (wheel: RepoWheel) => {
     setSelectedPath(wheel.path)
   }
 
-  return createPortal(
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
+  return (
+    <Modal
+      className="wheel-package-modal"
+      label={`${group.name} 轮子详情`}
+      onClose={onClose}
     >
-      <div
-        className="modal wheel-package-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${group.name} 轮子详情`}
-        tabIndex={-1}
-        ref={dialogRef}
-      >
-        <div className="modal-head">
+      <div className="modal-head">
           <span className={`wheel-detail-mark ${group.compatible.length ? 'is-ok' : 'is-warn'}`}>
             <Icon name={group.compatible.length ? 'check' : 'alert'} size={13} />
           </span>
@@ -129,19 +105,18 @@ export default function WheelPackageDialog({
           <span className={`badge ${group.compatible.length ? 'ok' : 'idle'}`}>
             {group.compatible.length ? '有兼容版本' : '无兼容版本'}
           </span>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭">
+          <Button className="icon-btn" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={14} />
-          </button>
+          </Button>
         </div>
 
         <div className="modal-body wheel-package-body">
           <div className="wheel-pick-head">
             <div>
               <strong>选择轮子</strong>
-              <span className="hint">先选一个版本，再安装或保存到本地</span>
             </div>
             <div className="spacer" />
-            <span className="hint">
+            <span className="badge ghost">
               {visible.length === group.wheels.length
                 ? `${group.wheels.length} 个版本`
                 : `${visible.length} / ${group.wheels.length} 个版本`}
@@ -179,23 +154,23 @@ export default function WheelPackageDialog({
               )}
               <div className="wheel-filter-actions">
                 {env && (
-                  <button
+                  <Button
                     type="button"
                     className="wheel-filter-link"
                     onClick={applyEnv}
                     title="按当前实例的 Python / torch / CUDA 筛选"
                   >
                     当前环境
-                  </button>
+                  </Button>
                 )}
                 {hasFilters && (
-                  <button
+                  <Button
                     type="button"
                     className="wheel-filter-link"
                     onClick={() => setFilters(EMPTY_FILTERS)}
                   >
                     清除
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -205,7 +180,7 @@ export default function WheelPackageDialog({
             {visible.map((wheel) => {
               const active = selected?.path === wheel.path
               return (
-                <button
+                <Button
                   type="button"
                   role="option"
                   aria-selected={active}
@@ -234,7 +209,7 @@ export default function WheelPackageDialog({
                     <span className="wheel-pick-file mono">{wheel.name}</span>
                   </span>
                   <span className="wheel-pick-size">{sizeText(wheel.size)}</span>
-                </button>
+                </Button>
               )
             })}
           </div>
@@ -248,34 +223,32 @@ export default function WheelPackageDialog({
           )}
 
           {downloadError && <div className="banner err wheel-pick-feedback">{downloadError}</div>}
-          {installBlocked && <div className="hint wheel-pick-feedback">{installBlocked}</div>}
+          {installBlocked && <div className="launch-warn wheel-pick-feedback">{installBlocked}</div>}
         </div>
 
         <div className="modal-foot wheel-package-foot">
-          <button
-            className="ghost"
+          <Button
+            variant="ghost"
             disabled={!selected || downloadingThis}
             onClick={() => selected && onDownload(selected)}
           >
             <Icon name="download" size={13} />
             {downloadingThis ? '下载中…' : '下载到本地'}
-          </button>
+          </Button>
           <div className="spacer" />
-          <button className="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose}>
             取消
-          </button>
+          </Button>
           {selected && (
-            <button
-              className={selected.compatible ? 'primary' : 'danger'}
+            <Button
+              variant={selected.compatible ? 'primary' : 'danger'}
               disabled={Boolean(installBlocked)}
               onClick={() => onInstall(selected, !selected.compatible)}
             >
               {selected.compatible ? '安装' : '强制安装'}
-            </button>
+            </Button>
           )}
         </div>
-      </div>
-    </div>,
-    document.body,
+    </Modal>
   )
 }

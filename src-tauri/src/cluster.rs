@@ -215,7 +215,7 @@ pub struct MemberInstanceView {
     pub node_count: usize,
     pub model_count: usize,
     pub model_bytes: u64,
-    /// 计数是否已采集到。Leader 源实例依赖后台发布器，首次采集完成前为 false，
+    /// 计数是否已采集到。Leader 源实例按需采集，打开集群页/发起同步前为 false，
     /// 前端显示“—”而不是误报 0。
     #[serde(default)]
     pub counts_known: bool,
@@ -407,11 +407,10 @@ pub struct LeaderShared {
     pub pending: Mutex<HashMap<String, PendingJoin>>,
     pub attempts: Mutex<HashMap<String, (u32, Instant)>>,
     pub stop: AtomicBool,
-    /// Leader 源实例的只读快照；由后台发布器定期刷新，避免把AppHandle 放进核心结构。
+    /// Leader 源实例的只读快照；按需刷新（打开集群页/发起同步时），不后台轮询。
     pub source_states: Mutex<HashMap<String, (sync::InstanceState, bool)>>,
-    pub publisher_started: AtomicBool,
-    /// 每个任务最近一次落盘时间。目标端进度是秒级轮询，若每次都重写整份
-    /// cluster.json（含所有任务日志），会持续放大磁盘写；只做有上限的节流。
+    /// 每个任务最近一次落盘时间。目标端进度是秒级轮询，若每次都重写全部任务
+    /// 配置会持续放大磁盘写；只做有上限的节流，任务日志已单独增量落表。
     pub progress_saves: Mutex<HashMap<String, Instant>>,
     /// 每个来源 IP 的当前连接数，用于拒绝单机占满全局连接池。
     active_hosts: Mutex<HashMap<IpAddr, usize>>,
@@ -437,16 +436,71 @@ pub fn member_path() -> PathBuf {
 }
 
 pub fn load_cluster() -> Option<ClusterConfig> {
-    let raw = std::fs::read_to_string(cluster_path()).ok()?;
+    // 新布局：SQLite。只有库里没有 meta 时才读旧 cluster.json 并做一次性导入。
+    if let Ok(db) = crate::db::global() {
+        match db.cluster_load() {
+            Ok(Some(mut cfg)) => {
+                for m in &mut cfg.members {
+                    m.online = false;
+                }
+                return Some(cfg);
+            }
+            Ok(None) => {}
+            Err(e) => log::warn!("读取集群数据库失败，尝试旧 cluster.json：{}", e.message),
+        }
+    }
+    let plain = cluster_path();
+    let migrated = plain.with_file_name("cluster.json.migrated");
+    // 数据库丢失/被删时，已迁移的旧文件仍可作为恢复来源。
+    let legacy = if plain.exists() {
+        plain.clone()
+    } else if migrated.exists() {
+        migrated.clone()
+    } else {
+        return None;
+    };
+    let raw = std::fs::read_to_string(&legacy).ok()?;
     let mut cfg: ClusterConfig = serde_json::from_str(&raw).ok()?;
-    // 重启后所有成员先视为离线，等目标 Agent 心跳。
     for m in &mut cfg.members {
         m.online = false;
+    }
+    if let Ok(db) = crate::db::global() {
+        match db.cluster_save(&cfg) {
+            Ok(()) => {
+                // 只有直接从 cluster.json 导入时才改名；`.migrated` 是恢复备份，保留。
+                if legacy == plain && plain.exists() {
+                    let _ = std::fs::rename(&plain, &migrated);
+                }
+                log::info!("旧集群文件已导入 SQLite");
+            }
+            Err(e) => log::warn!("旧集群文件导入 SQLite 失败：{}", e.message),
+        }
     }
     Some(cfg)
 }
 
+pub fn cluster_exists() -> bool {
+    if let Ok(db) = crate::db::global() {
+        if let Ok(exists) = db.cluster_exists() {
+            if exists {
+                return true;
+            }
+        }
+    }
+    // 数据库不可用或尚未导入时，旧文件仍然算“已有集群”，避免误创建覆盖。
+    cluster_path().exists()
+        || cluster_path()
+            .with_file_name("cluster.json.migrated")
+            .exists()
+}
+
 pub fn save_cluster(cfg: &ClusterConfig) -> Result<(), AppError> {
+    if let Ok(db) = crate::db::global() {
+        match db.cluster_save(cfg) {
+            Ok(()) => return Ok(()),
+            Err(e) => log::warn!("写集群数据库失败，回退 cluster.json：{}", e.message),
+        }
+    }
     config::atomic_write(
         &cluster_path(),
         serde_json::to_string_pretty(cfg)?.as_bytes(),
@@ -577,7 +631,7 @@ pub fn create_cluster(
     port: u16,
     allow_lan: bool,
 ) -> Result<Arc<LeaderShared>, AppError> {
-    if cluster_path().exists() {
+    if cluster_exists() {
         return Err(AppError::new("CLUSTER_EXISTS", "本机已经创建过集群"));
     }
     if member_path().exists() {
@@ -623,6 +677,9 @@ pub fn create_cluster(
     match start_server(cfg) {
         Ok(shared) => Ok(shared),
         Err(e) => {
+            if let Ok(db) = crate::db::global() {
+                let _ = db.cluster_delete();
+            }
             let _ = std::fs::remove_file(cluster_path());
             Err(e)
         }
@@ -656,7 +713,6 @@ pub fn start_server(cfg: ClusterConfig) -> Result<Arc<LeaderShared>, AppError> {
         attempts: Mutex::new(HashMap::new()),
         stop: AtomicBool::new(false),
         source_states: Mutex::new(HashMap::new()),
-        publisher_started: AtomicBool::new(false),
         progress_saves: Mutex::new(HashMap::new()),
         active_hosts: Mutex::new(HashMap::new()),
     });
@@ -733,7 +789,16 @@ pub fn stop_runtime(app: &tauri::AppHandle) {
 }
 
 pub fn remove_cluster() -> Result<(), AppError> {
+    if let Ok(db) = crate::db::global() {
+        if let Err(e) = db.cluster_delete() {
+            return Err(AppError::new(
+                "CLUSTER_DELETE",
+                format!("删除集群数据库失败：{}", e.message),
+            ));
+        }
+    }
     let _ = std::fs::remove_file(cluster_path());
+    let _ = std::fs::remove_file(cluster_path().with_file_name("cluster.json.migrated"));
     let _ = std::fs::remove_file(member_path());
     Ok(())
 }
@@ -1278,8 +1343,8 @@ fn heartbeat(
     if let Some(m) = cfg.members.iter_mut().find(|m| m.id == member.id) {
         // instances 本身不落盘（Member 上是 serde(skip)），online / last_seen
         // 重启后也会被 load_cluster 重置；只有 model_store 变化需要写盘。
-        // 之前每次心跳都把整份 cluster.json（含全部任务日志）重写一遍，
-        // 多台成员时会持续产生大量磁盘写。
+        // 之前每次心跳都把整份集群配置（含全部任务日志）重写一遍，
+        // 多台成员时会持续产生大量磁盘写；现在只在 model_store 变化时落库。
         if m.model_store != body.model_store {
             m.model_store = body.model_store;
             persist = true;
@@ -1822,8 +1887,8 @@ fn progress(
     if has_report {
         job.report = body.report;
     }
-    // 目标端每秒都可能上报 running 进度；整份 cluster.json 包含全部任务日志，
-    // 不能每来一条就重写。状态切换、错误/报告等里程碑立即写，普通进度最多 15 秒写一次。
+    // 目标端每秒都可能上报 running 进度；任务日志已经单独存表，但配置里仍有
+    // diff/report。状态切换、错误/报告等里程碑立即写，普通进度最多 15 秒写一次。
     let should_persist = old_status != sync::JOB_RUNNING
         || body.status != sync::JOB_RUNNING
         || has_error
@@ -1872,7 +1937,7 @@ fn handle_member_status(
     member: &Member,
     stream: &mut TcpStream,
 ) -> Result<(), AppError> {
-    // 源实例计数直接读后台发布器缓存，避免每次成员轮询都扫描模型库。
+    // 源实例计数直接读按需缓存，避免每次成员轮询都扫描模型库。
     let sources = {
         let states = shared.source_states.lock();
         local_instance_views(Some(&states))
@@ -1929,7 +1994,7 @@ fn compare_source(
                 stream,
                 404,
                 "SYNC_SOURCE",
-                "源端实例状态尚未发布，请在源端刷新同步页后重试",
+                "源端实例状态尚未刷新，请在源端打开集群页刷新后重试",
             );
             return Ok(());
         }
@@ -2241,7 +2306,7 @@ pub fn join_cluster(
     password: &str,
     member_name: &str,
 ) -> Result<MemberConfig, AppError> {
-    if cluster_path().exists() {
+    if cluster_exists() {
         return Err(AppError::new(
             "CLUSTER_EXISTS",
             "本机是Leader，不能同时加入另一个集群",
@@ -2402,7 +2467,7 @@ fn leader_view(cfg: &ClusterConfig) -> ClusterView {
 /// Follower 自己的状态页不重新扫描模型库（可能几十GB），只展示实例登记信息。
 /// 目标实例的完整清单由 Agent 心跳上报给 Leader；只有 Leader 侧才有。
 ///
-/// `cached` 是 Leader 后台发布器已采集好的源实例状态：节点/模型计数从这里取，
+/// `cached` 是 Leader 按需采集好的源实例状态：节点/模型计数从这里取，
 /// 避免每次状态轮询都全量扫描模型库。缓存尚未就绪时把 `counts_known` 置 false。
 fn local_instance_views(
     cached: Option<&HashMap<String, (sync::InstanceState, bool)>>,
@@ -2529,7 +2594,7 @@ pub fn member_status(app: &tauri::AppHandle) -> ClusterStatus {
 }
 
 pub fn status(app: &tauri::AppHandle) -> ClusterStatus {
-    if cluster_path().exists() {
+    if cluster_exists() {
         leader_status(app)
     } else if member_path().exists() {
         member_status(app)
@@ -2925,17 +2990,16 @@ fn agent_loop(app: tauri::AppHandle, stop: Arc<AtomicBool>) {
 pub fn autostart(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let mut rt = state.cluster.lock();
-    if cluster_path().exists() {
+    if cluster_exists() {
         match load_cluster() {
             Some(cfg) => match start_server(cfg) {
                 Ok(shared) => {
-                    start_source_publisher(&shared, app.clone());
                     rt.leader = Some(shared);
                     rt.error = None;
                 }
                 Err(e) => rt.error = Some(e.message),
             },
-            None => rt.error = Some("cluster.json 损坏，无法启动集群服务".to_string()),
+            None => rt.error = Some("集群数据损坏，无法启动集群服务".to_string()),
         }
         return;
     }
@@ -2959,7 +3023,6 @@ pub fn retry_server(app: &tauri::AppHandle) -> Result<(), AppError> {
     let cfg = load_cluster()
         .ok_or_else(|| AppError::new("CLUSTER_NONE", "本机没有集群配置，无法启动集群服务"))?;
     let shared = start_server(cfg)?;
-    start_source_publisher(&shared, app.clone());
     let mut rt = state.cluster.lock();
     rt.leader = Some(shared);
     rt.error = None;
@@ -2970,49 +3033,15 @@ pub fn leader_shared(app: &tauri::AppHandle) -> Option<Arc<LeaderShared>> {
     app.state::<AppState>().cluster.lock().leader.clone()
 }
 
-/// Leader 侧后台发布源实例快照，供目标端只读比较。
-/// 不在核心结构里保存AppHandle，避免测试二进制被Tauri 对话框运行时拖进来。
-pub fn start_source_publisher(shared: &Arc<LeaderShared>, app: tauri::AppHandle) {
-    if shared.publisher_started.swap(true, Ordering::SeqCst) {
-        return;
+/// 记录一次按需采集的源实例快照，供目标端只读比较。
+/// 只在打开集群页/发起同步时刷新，不在后台轮询。
+pub fn cache_source_state(app: &tauri::AppHandle, source: &sync::InstanceState, running: bool) {
+    if let Some(shared) = leader_shared(app) {
+        shared
+            .source_states
+            .lock()
+            .insert(source.instance_id.clone(), (source.clone(), running));
     }
-    let shared = Arc::clone(shared);
-    std::thread::spawn(move || {
-        while !shared.stop.load(Ordering::Relaxed) {
-            publish_source_states(&shared, &app);
-            for _ in 0..150 {
-                if shared.stop.load(Ordering::Relaxed) {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        }
-    });
-}
-
-fn publish_source_states(shared: &Arc<LeaderShared>, app: &tauri::AppHandle) {
-    let state = app.state::<AppState>();
-    let instances = match crate::commands::instance::instance_list() {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-    let settings = state.settings.lock().clone();
-    let git = crate::git::resolve(app, &settings).ok();
-    let mut map = HashMap::new();
-    for inst in instances.iter().filter(|i| !i.is_remote()) {
-        let source = sync::capture_instance_state(
-            inst,
-            &settings,
-            git.as_ref().map(|g| Path::new(&g.path)),
-            true,
-        );
-        let running = matches!(
-            inst.state,
-            config::InstanceState::Running | config::InstanceState::Starting
-        );
-        map.insert(inst.id.clone(), (source, running));
-    }
-    *shared.source_states.lock() = map;
 }
 
 /// 源端页面：当前源实例相对「最近一次成功同步快照」的变化。
@@ -3023,17 +3052,27 @@ pub fn source_changes(app: &tauri::AppHandle, source_id: &str) -> Result<SourceC
     }
     let shared = leader_shared(app)
         .ok_or_else(|| AppError::new("CLUSTER_OFFLINE", "本机不是集群 Leader"))?;
-    let (current, running) = shared
-        .source_states
-        .lock()
-        .get(source_id)
-        .cloned()
-        .ok_or_else(|| {
-            AppError::new(
-                "SYNC_SOURCE_STATE",
-                "源实例状态正在采集，请稍后点刷新；如果一直这样，确认实例目录可读",
-            )
-        })?;
+    let inst = crate::commands::instance::load_instance(source_id)?;
+    if inst.is_remote() {
+        return Err(AppError::new(
+            "CLUSTER_SOURCE_REMOTE",
+            "云端实例没有本地环境，不能作为同步源",
+        ));
+    }
+    let settings = app.state::<AppState>().settings.lock().clone();
+    let git = crate::git::resolve(app, &settings).ok();
+    // 对比只读元数据：不读模型内容，打开页面/点刷新时才扫描。
+    let current = sync::capture_instance_state(
+        &inst,
+        &settings,
+        git.as_ref().map(|g| Path::new(&g.path)),
+        true,
+    );
+    let running = matches!(
+        inst.state,
+        config::InstanceState::Running | config::InstanceState::Starting
+    );
+    cache_source_state(app, &current, running);
     let cfg = shared.config.lock();
     let baseline = cfg.last_syncs.get(source_id);
     let mut diff = if let Some(last) = baseline {
@@ -3430,7 +3469,7 @@ mod tests {
     use crate::sync::InstanceState;
     use std::sync::Mutex as StdMutex;
 
-    /// join/confirm 测试都会写同一个cluster.json，串行执行避免互相覆盖。
+    /// join/confirm 测试都会写同一个集群数据库，串行执行避免互相覆盖。
     static CLUSTER_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
     #[test]
@@ -3549,7 +3588,7 @@ mod tests {
     }
 
     #[test]
-    fn compare_endpoint_uses_published_source_state() {
+    fn compare_endpoint_uses_cached_source_state() {
         let _guard = CLUSTER_TEST_LOCK.lock().unwrap();
         let (shared, base) = test_server("test-password");
         let joined = join_test_member(&base, "比较目标机");

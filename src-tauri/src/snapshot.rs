@@ -311,6 +311,41 @@ fn now_id(trigger: &str) -> String {
     )
 }
 
+/// 只有正式快照目录才写数据库索引；测试/临时目录继续走纯文件，避免污染生产库。
+fn indexed_base(base: &Path) -> bool {
+    let legacy = config::app_root().join("snapshots");
+    if base.starts_with(&legacy) {
+        return true;
+    }
+    base.parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(|n| n == ".comfyfleet")
+        .unwrap_or(false)
+}
+
+fn index_snapshot(base: &Path, snap: &Snapshot) -> bool {
+    if !indexed_base(base) {
+        return true;
+    }
+    let Ok(db) = crate::db::global() else {
+        return false;
+    };
+    let Ok(text) = serde_json::to_string(snap) else {
+        return false;
+    };
+    let ok = match db.snapshot_upsert(base, &snap.id, &snap.created_at, &text) {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("快照索引写入失败 {}：{}", snap.id, e.message);
+            false
+        }
+    };
+    // 新文件可能和上次扫描落在同一文件时间戳；强制下一次 list_in 重扫。
+    let _ = db.snapshot_invalidate_base(base);
+    ok
+}
+
 pub fn save_in(base: &Path, snap: &Snapshot) -> Result<(), AppError> {
     std::fs::create_dir_all(base)
         .map_err(|e| AppError::new("SNAPSHOT_DIR", format!("建快照目录失败：{e}")))?;
@@ -327,8 +362,48 @@ fn normalize_snapshot_packages(snap: &mut Snapshot) {
     }
 }
 
+fn dir_mtime(base: &Path) -> Option<i64> {
+    std::fs::metadata(base)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_nanos() as i64)
+}
+
 pub fn list_in(base: &Path) -> Vec<Snapshot> {
+    let indexed = indexed_base(base);
+    let mut db_ref = None;
+    if indexed {
+        if let Ok(db) = crate::db::global() {
+            let mtime = dir_mtime(base);
+            let fresh = match (mtime, db.snapshot_base_mtime(base)) {
+                (Some(now), Ok(Some(indexed_at))) => now == indexed_at,
+                _ => false,
+            };
+            if fresh {
+                if let Ok(lines) = db.snapshot_list(base) {
+                    let total = lines.len();
+                    let mut out: Vec<Snapshot> = lines
+                        .into_iter()
+                        .filter_map(|line| serde_json::from_str::<Snapshot>(&line).ok())
+                        .collect();
+                    if total == 0 || out.len() == total {
+                        for snap in &mut out {
+                            normalize_snapshot_packages(snap);
+                        }
+                        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                        return out;
+                    }
+                }
+            }
+            db_ref = Some(db);
+        }
+    }
     let mut out = Vec::new();
+    let mut ids = Vec::new();
+    let mut clean = true;
     let Ok(entries) = std::fs::read_dir(base) else {
         return out;
     };
@@ -338,17 +413,37 @@ pub fn list_in(base: &Path) -> Vec<Snapshot> {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {
+            clean = false;
             continue;
         };
         match serde_json::from_str::<Snapshot>(&text) {
             Ok(mut snap) => {
                 normalize_snapshot_packages(&mut snap);
+                if !index_snapshot(base, &snap) {
+                    clean = false;
+                }
+                ids.push(snap.id.clone());
                 out.push(snap);
             }
-            Err(e) => log::warn!("跳过损坏的快照 {}：{e}", path.display()),
+            Err(e) => {
+                clean = false;
+                log::warn!("跳过损坏的快照 {}：{e}", path.display());
+            }
         }
     }
     out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    if indexed && clean {
+        if let (Some(db), Some(mtime)) = (db_ref, dir_mtime(base)) {
+            match db.snapshot_prune(base, &ids) {
+                Ok(()) => {
+                    if let Err(e) = db.snapshot_set_base_mtime(base, mtime) {
+                        log::warn!("快照目录索引时间写入失败：{}", e.message);
+                    }
+                }
+                Err(e) => log::warn!("快照索引清理失败：{}", e.message),
+            }
+        }
+    }
     out
 }
 
@@ -372,6 +467,13 @@ pub fn load_in(base: &Path, id: &str) -> Result<Snapshot, AppError> {
 }
 
 pub fn delete_in(base: &Path, id: &str) -> Result<(), AppError> {
+    if indexed_base(base) {
+        if let Ok(db) = crate::db::global() {
+            if let Err(e) = db.snapshot_delete(base, id) {
+                log::warn!("快照索引删除失败 {}：{}", id, e.message);
+            }
+        }
+    }
     let path = file_of(base, id)?;
     std::fs::remove_file(&path)
         .map_err(|e| AppError::new("SNAPSHOT_DELETE", format!("删除快照失败：{e}")))?;
@@ -1140,6 +1242,7 @@ fn archive_and_save(
         let _ = std::fs::remove_dir_all(payload_dir(base, &snap.id));
         return Err(e);
     }
+    let _ = index_snapshot(base, snap);
     Ok(())
 }
 
@@ -3770,6 +3873,7 @@ mod tests {
             remote: None,
             imported: false,
             state: crate::config::InstanceState::Ready,
+            last_error: None,
             created_at: "2026-01-01T00:00:00+08:00".into(),
             last_started_at: None,
         }
@@ -4022,6 +4126,7 @@ mod tests {
             remote: None,
             imported: false,
             state: crate::config::InstanceState::Ready,
+            last_error: None,
             created_at: "2026-01-01T00:00:00+08:00".into(),
             last_started_at: None,
         };

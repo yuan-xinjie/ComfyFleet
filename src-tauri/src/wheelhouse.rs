@@ -137,10 +137,8 @@ pub fn migrate_library(from: &Path, to: &Path) -> Result<Migration, AppError> {
                     return Err(with_rollback(err, report.rollback()));
                 }
                 Err(e) => {
-                    let err = migrate_err(format!(
-                        "比较新旧 wheel 文件失败（{}）：{e}",
-                        dst.display()
-                    ));
+                    let err =
+                        migrate_err(format!("比较新旧 wheel 文件失败（{}）：{e}", dst.display()));
                     return Err(with_rollback(err, report.rollback()));
                 }
             }
@@ -170,8 +168,9 @@ fn with_rollback(err: AppError, rollback: Result<(), AppError>) -> AppError {
 /// 先 rename；跨盘时 fallback 到 copy + 删除源文件。任何一步失败都保留源文件。
 fn move_one(from: &Path, to: &Path) -> Result<(), AppError> {
     if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| migrate_err(format!("创建迁移目标目录失败（{}）：{e}", parent.display())))?;
+        fs::create_dir_all(parent).map_err(|e| {
+            migrate_err(format!("创建迁移目标目录失败（{}）：{e}", parent.display()))
+        })?;
     }
     if fs::rename(from, to).is_ok() {
         return Ok(());
@@ -426,10 +425,7 @@ mod tests {
         let root = temp_root("migrate");
         let old = root.join("old");
         let new = root.join("new");
-        let nested = touch(
-            &old,
-            "cuda13/demo-1.0.0-cp313-cp313-win_amd64.whl",
-        );
+        let nested = touch(&old, "cuda13/demo-1.0.0-cp313-cp313-win_amd64.whl");
         let top = touch(&old, "top-1.0.0-py3-none-any.whl");
         std::fs::write(old.join("readme.txt"), b"keep").unwrap();
 

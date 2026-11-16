@@ -1,5 +1,6 @@
+import { TextInput, Checkbox } from '../components/Form'
+import Button from '../components/Button'
 import { useCallback, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { api, errText } from '../lib/api'
 import type {
   DepsInstallReport,
@@ -11,12 +12,15 @@ import type {
   VersionEvent,
 } from '../types'
 import Icon from '../components/Icon'
+import Modal from '../components/Modal'
 import Select from '../components/Select'
 import OperationDialog, {
+  operationPercent,
   operationStageLabel,
   type OperationLine,
   type OperationTab,
 } from '../components/OperationDialog'
+import { speedFromLog, useBackgroundTask } from '../components/BackgroundTasks'
 
 interface Props {
   inst: InstanceConfig
@@ -60,6 +64,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [nodeOp, setNodeOp] = useState<NodeOperation | null>(null)
+  const [nodeOpOpen, setNodeOpOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -78,6 +83,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   const [depTab, setDepTab] = useState<OperationTab>('detail')
   const [report, setReport] = useState<DepsInstallReport | null>(null)
   const [depsError, setDepsError] = useState<string | null>(null)
+  const [depsOpen, setDepsOpen] = useState(false)
 
   const refreshDeps = useCallback(async (): Promise<DepsReport | null> => {
     setDepsBusy(true)
@@ -202,6 +208,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   const install = async () => {
     if (!url.trim()) return
     setBusy('install')
+    setNodeOpOpen(false)
     setNodeOp({
       title: '安装节点',
       target: url.trim(),
@@ -260,6 +267,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
 
   const update = async (node: NodeInfo) => {
     setBusy(node.name)
+    setNodeOpOpen(false)
     setNodeOp({
       title: '更新节点',
       target: node.name,
@@ -296,6 +304,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
       return
     }
     setBusy('all')
+    setNodeOpOpen(false)
     setNodeOp({
       title: '更新全部节点',
       target: `${targets.length} 个节点`,
@@ -375,6 +384,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   }
 
   const openInstall = async (names: string[] | null) => {
+    setDepsOpen(false)
     setReport(null)
     setDepsError(null)
     setDepEvents([])
@@ -409,6 +419,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
       }
     }
     setInstalling(true)
+    setDepsOpen(false)
     setDepEvents([])
     setDepPhase('准备中')
     setDepTab('detail')
@@ -460,6 +471,44 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
 
   const targetCount = confirm ? (confirm.names ? confirm.names.length : targets.length) : 0
 
+  useBackgroundTask(
+    nodeOp
+      ? {
+          id: `nodes-${instanceId}`,
+          title: nodeOp.title,
+          phase: nodeOp.phase,
+          state: nodeOp.state,
+          percent:
+            nodeOp.state === 'ok'
+              ? 100
+              : operationPercent(nodeOp.events[nodeOp.events.length - 1]?.message ?? '') ?? undefined,
+          log: nodeOp.events[nodeOp.events.length - 1]?.message,
+          speed: speedFromLog(nodeOp.events[nodeOp.events.length - 1]?.message),
+          kind: 'node',
+          onOpen: () => setNodeOpOpen(true),
+        }
+      : null,
+  )
+
+  useBackgroundTask(
+    confirm && (installing || report || depsError)
+      ? {
+          id: `nodes-deps-${instanceId}`,
+          title: depsError ? '依赖处理失败' : report ? '依赖处理结果' : '安装节点依赖',
+          phase: depPhase,
+          state: installing ? 'running' : depsError ? 'failed' : 'ok',
+          percent:
+            !installing && !depsError
+              ? 100
+              : operationPercent(depEvents[depEvents.length - 1]?.message ?? '') ?? undefined,
+          log: depEvents[depEvents.length - 1]?.message,
+          speed: speedFromLog(depEvents[depEvents.length - 1]?.message),
+          kind: 'install',
+          onOpen: () => setDepsOpen(true),
+        }
+      : null,
+  )
+
   return (
     <>
       <section className="panel ov-card ov-nodes" aria-labelledby="ov-nodes-title">
@@ -489,7 +538,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
           </div>
           <div className="ov-nodes-head-actions">
             {updatableCount > 0 && (
-              <button
+              <Button
                 className="ghost sm"
                 onClick={() => void updateAll()}
                 disabled={loading || busy !== null || installing || depsBusy || checking}
@@ -508,10 +557,10 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               >
                 <Icon name="refresh" size={13} />
                 <span className="ov-bulk-label">更新 ({updatableCount})</span>
-              </button>
+              </Button>
             )}
             {deps && deps.pendingNodes > 0 && (
-              <button
+              <Button
                 className="ghost sm"
                 onClick={() => void openInstall(null)}
                 disabled={installing || depsBusy}
@@ -520,11 +569,11 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               >
                 <Icon name="download" size={13} />
                 <span className="ov-bulk-label">补全依赖</span>
-              </button>
+              </Button>
             )}
           </div>
           <div className="ov-nodes-head-icons">
-            <button
+            <Button
               className={`icon-btn${addOpen ? ' is-on' : ''}`}
               onClick={() => setAddOpen((v) => !v)}
               disabled={installing}
@@ -533,8 +582,8 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               aria-expanded={addOpen}
             >
               <Icon name={addOpen ? 'close' : 'plus'} size={14} />
-            </button>
-            <button
+            </Button>
+            <Button
               className={`icon-btn${depsBusy || checking ? ' is-busy' : ''}`}
               onClick={() => void reloadAll()}
               disabled={loading || depsBusy || installing || checking}
@@ -542,8 +591,8 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               aria-label="刷新节点"
             >
               <Icon name="refresh" size={14} />
-            </button>
-            <button
+            </Button>
+            <Button
               className="icon-btn"
               onClick={onDiagnose}
               disabled={installing}
@@ -551,7 +600,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               aria-label="诊断节点"
             >
               <Icon name="diagnostics" size={14} />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -559,24 +608,24 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
           <div className="ov-node-install">
             <label className="field ov-node-url">
               仓库地址
-              <input
+              <TextInput
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 autoFocus
               />
             </label>
             <label className="check">
-              <input type="checkbox" checked={withReq} onChange={(e) => setWithReq(e.target.checked)} />
+              <Checkbox type="checkbox" checked={withReq} onChange={(e) => setWithReq(e.target.checked)} />
               装依赖
             </label>
-            <button
+            <Button
               className="primary"
               onClick={() => void install()}
               disabled={!url.trim() || busy !== null}
             >
               <Icon name="plus" size={13} />
               {busy === 'install' ? '安装中…' : '安装'}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -645,7 +694,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                         </span>
                         {n.kind === 'manual' && <span className="badge ghost">手动</span>}
                         {u && !u.error && u.behind > 0 && (
-                          <button
+                          <Button
                             type="button"
                             className="badge warn badge-action"
                             disabled={updateLocked || !n.enabled}
@@ -662,10 +711,10 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             onClick={() => void update(n)}
                           >
                             可更新
-                          </button>
+                          </Button>
                         )}
                         {u?.error && (
-                          <button
+                          <Button
                             type="button"
                             className="badge badge-action"
                             disabled={updateLocked || !n.enabled}
@@ -678,10 +727,10 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             onClick={() => void update(n)}
                           >
                             检查失败
-                          </button>
+                          </Button>
                         )}
                         {pending > 0 ? (
-                          <button
+                          <Button
                             type="button"
                             className="badge warn badge-action"
                             disabled={depsLocked}
@@ -690,9 +739,9 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             onClick={() => void openInstall([n.name])}
                           >
                             缺 {pending} 个依赖
-                          </button>
+                          </Button>
                         ) : d?.manual.length ? (
-                          <button
+                          <Button
                             type="button"
                             className="badge badge-action"
                             disabled={depsLocked}
@@ -701,9 +750,9 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             onClick={() => void openInstall([n.name])}
                           >
                             {d.manual.length} 条手动项
-                          </button>
+                          </Button>
                         ) : d?.hasInstallPy ? (
-                          <button
+                          <Button
                             type="button"
                             className="badge badge-action"
                             disabled={depsLocked}
@@ -712,26 +761,26 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             onClick={() => void openInstall([n.name])}
                           >
                             装依赖
-                          </button>
+                          </Button>
                         ) : null}
                       </div>
                       <div className="node-actions">
                         {confirmDel === n.name ? (
                           <>
-                            <button
+                            <Button
                               className="danger sm"
                               disabled={busy !== null}
                               title="删除节点目录，不可恢复；不会删除模型和输出"
                               onClick={() => void remove(n)}
                             >
                               确认删除
-                            </button>
-                            <button className="ghost sm" onClick={() => setConfirmDel(null)}>
+                            </Button>
+                            <Button className="ghost sm" onClick={() => setConfirmDel(null)}>
                               取消
-                            </button>
+                            </Button>
                           </>
                         ) : (
-                          <button
+                          <Button
                             className="icon-btn node-del"
                             disabled={busy !== null}
                             onClick={() => void remove(n)}
@@ -739,9 +788,9 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             aria-label={`删除 ${n.name}`}
                           >
                             <Icon name="trash" size={14} />
-                          </button>
+                          </Button>
                         )}
-                        <button
+                        <Button
                           type="button"
                           className={`node-switch${n.enabled ? ' is-on' : ''}`}
                           role="switch"
@@ -752,7 +801,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                           onClick={() => void toggle(n)}
                         >
                           <span aria-hidden="true" />
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )
@@ -763,7 +812,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
         </div>
       </section>
 
-      {nodeOp && (
+      {nodeOp && nodeOpOpen && (
         <OperationDialog
           title={nodeOp.title}
           target={nodeOp.target}
@@ -778,17 +827,19 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
           tab={nodeOp.tab}
           onTab={(tab) => setNodeOp((prev) => (prev ? { ...prev, tab } : prev))}
           detailLabel="安装详情"
-          closeLabel={
-            nodeOp.state !== 'running' ? '关闭' : nodeOp.title === '更新节点' ? '更新中…' : '安装中…'
-          }
-          allowHideOnRun={false}
-          onClose={() => setNodeOp(null)}
+          onClose={() => {
+            if (nodeOp.state === 'running') {
+              setNodeOpOpen(false)
+              return
+            }
+            setNodeOp(null)
+          }}
         >
           {nodeOp.error && <div className="op-run-error">{nodeOp.error}</div>}
         </OperationDialog>
       )}
 
-      {confirm && (installing || report || depsError) && (
+      {confirm && depsOpen && (installing || report || depsError) && (
         <OperationDialog
           title={depsError ? '依赖处理失败' : report ? '依赖处理结果' : '安装节点依赖'}
           target={targetCount ? `${targetCount} 个节点` : inst.name}
@@ -803,11 +854,16 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
           tab={depTab}
           onTab={setDepTab}
           detailLabel="依赖详情"
-          allowHideOnRun={false}
-          onClose={closeConfirm}
+          onClose={() => {
+            if (installing) {
+              setDepsOpen(false)
+              return
+            }
+            closeConfirm()
+          }}
           footer={
             report?.snapshotId && onOpenSnapshots ? (
-              <button
+              <Button
                 className="ghost"
                 onClick={() => {
                   closeConfirm()
@@ -816,7 +872,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               >
                 <Icon name="clock" size={13} />
                 去快照页
-              </button>
+              </Button>
             ) : null
           }
         >
@@ -855,22 +911,19 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
         </OperationDialog>
       )}
 
-      {confirm && !installing && !report && !depsError &&
-        createPortal(
-          <div
-            className="modal-backdrop"
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget) closeConfirm()
-            }}
-          >
-            <div className="modal deps-modal" role="dialog" aria-modal="true" aria-labelledby="deps-title">
+      {confirm && !installing && !report && !depsError && (
+        <Modal
+          className="deps-modal"
+          labelledBy="deps-title"
+          onClose={closeConfirm}
+        >
             <div className="modal-head">
               <h2 id="deps-title">补节点依赖</h2>
               <span className="badge ghost">{targetCount ? `${targetCount} 个节点` : inst.name}</span>
               <div className="spacer" />
-              <button className="icon-btn" onClick={closeConfirm} title="关闭" aria-label="关闭">
+              <Button className="icon-btn" onClick={closeConfirm} title="关闭" aria-label="关闭">
                 <Icon name="close" size={16} />
-              </button>
+              </Button>
             </div>
 
             <div className="modal-body">
@@ -940,7 +993,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
 
                   {targets.some((d) => d.hasInstallPy) && (
                     <label className="check">
-                      <input
+                      <Checkbox
                         type="checkbox"
                         checked={runInstallPy}
                         onChange={(e) => setRunInstallPy(e.target.checked)}
@@ -953,10 +1006,10 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
 
             <div className="modal-foot">
               <div className="spacer" />
-              <button className="ghost" onClick={closeConfirm}>
+              <Button className="ghost" onClick={closeConfirm}>
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 className="primary"
                 onClick={() => void installDeps(running)}
                 disabled={stopping || targets.length === 0}
@@ -968,12 +1021,10 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                     : running
                       ? '停止实例并再装'
                       : '开始装依赖'}
-              </button>
+              </Button>
             </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+        </Modal>
+      )}
     </>
   )
 }

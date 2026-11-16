@@ -1,3 +1,4 @@
+import Button from '../components/Button'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -374,11 +375,11 @@ export default function ConsoleView({
             已连接
           </span>
         ) : (
-          <button className="primary" onClick={() => void enterEnv()} title="打开 cmd.exe，venv 已加入 PATH">
+          <Button className="primary" onClick={() => void enterEnv()} title="打开 cmd.exe，venv 已加入 PATH">
             连接终端
-          </button>
+          </Button>
         )}
-        <button
+        <Button
           className="ghost"
           onClick={() => {
             const id = sessionRef.current
@@ -387,16 +388,16 @@ export default function ConsoleView({
           disabled={!running}
         >
           Ctrl+C
-        </button>
-        <button className="ghost" onClick={() => void endSession()} disabled={!running}>
+        </Button>
+        <Button className="ghost" onClick={() => void endSession()} disabled={!running}>
           结束会话
-        </button>
-        <button className="ghost" onClick={() => termRef.current?.clear()}>
+        </Button>
+        <Button className="ghost" onClick={() => termRef.current?.clear()}>
           清屏
-        </button>
-        <button className="ghost sm" onClick={selfTest} disabled={running} title="验证中文与管道">
+        </Button>
+        <Button className="ghost sm" onClick={selfTest} disabled={running} title="验证中文与管道">
           自检
-        </button>
+        </Button>
 
         <div className="spacer" />
         <span className="meta">{running && !focused ? '键盘未聚焦 · 点一下终端' : label}</span>

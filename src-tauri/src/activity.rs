@@ -81,6 +81,10 @@ pub fn record(
     action: impl Into<String>,
     detail: Option<String>,
 ) {
+    if !safe_id(instance_id) {
+        log::warn!("实例 id 不合法，拒绝写操作日志");
+        return;
+    }
     let entry = ActivityEntry {
         id: next_id(),
         at: chrono::Local::now().to_rfc3339(),
@@ -92,8 +96,34 @@ pub fn record(
         action: action.into(),
         detail: detail.filter(|d| !d.trim().is_empty()).map(clip_detail),
     };
-    if let Err(e) = append_in(&dir(), instance_id, &entry, cap_bytes()) {
-        log::warn!("实例 {} 的操作日志写入失败：{}", instance_id, e.message);
+    let cap = cap_bytes();
+    let entry_json = match serde_json::to_string(&entry) {
+        Ok(text) => text,
+        Err(e) => {
+            log::warn!("实例 {} 的操作日志编码失败：{e}", instance_id);
+            return;
+        }
+    };
+    if let Ok(db) = crate::db::global() {
+        if let Err(e) = db.activity_import_once(&dir(), cap) {
+            log::warn!("旧操作日志导入数据库失败：{}", e.message);
+        }
+        match db.activity_append(instance_id, &entry.id, &entry.at, &entry_json, cap) {
+            Ok(()) => return,
+            Err(e) => log::warn!(
+                "实例 {} 的操作日志写入数据库失败，回退 JSONL：{}",
+                instance_id,
+                e.message
+            ),
+        }
+    }
+    match append_in(&dir(), instance_id, &entry, cap) {
+        Ok(()) => {
+            if let Ok(db) = crate::db::global() {
+                let _ = db.activity_mark_unimported();
+            }
+        }
+        Err(e) => log::warn!("实例 {} 的操作日志写入失败：{}", instance_id, e.message),
     }
 }
 
@@ -165,6 +195,30 @@ fn trim_to_cap(file: &Path, cap: u64) -> Result<(), AppError> {
 
 /// 最新的在前；坏行（写一半崩了）跳过，不让一条坏记录毁掉整页。
 pub fn list(instance_id: &str, limit: usize) -> Result<Vec<ActivityEntry>, AppError> {
+    if !safe_id(instance_id) {
+        return Err(AppError::new("ACTIVITY_BAD_ID", "实例 id 不合法"));
+    }
+    let limit = limit.max(1).min(MAX_LIST);
+    let cap = cap_bytes();
+    if let Ok(db) = crate::db::global() {
+        if let Err(e) = db.activity_import_once(&dir(), cap) {
+            log::warn!("旧操作日志导入数据库失败，回退 JSONL：{}", e.message);
+            return list_in(&dir(), instance_id, limit);
+        }
+        match db.activity_list(instance_id, limit) {
+            Ok(lines) => {
+                return Ok(lines
+                    .into_iter()
+                    .filter_map(|line| serde_json::from_str::<ActivityEntry>(&line).ok())
+                    .collect());
+            }
+            Err(e) => log::warn!(
+                "实例 {} 的操作日志读取数据库失败，回退 JSONL：{}",
+                instance_id,
+                e.message
+            ),
+        }
+    }
     list_in(&dir(), instance_id, limit)
 }
 

@@ -1,3 +1,4 @@
+import Button from './Button'
 import Icon, { type IconName } from './Icon'
 
 /**
@@ -16,9 +17,9 @@ export default function TopbarAction({
   onClick: () => void
 }) {
   return (
-    <button type="button" className="topbar-action" onClick={onClick} title={title} aria-label={title}>
+    <Button type="button" className="topbar-action" onClick={onClick} title={title} aria-label={title}>
       <Icon name={icon} size={14} />
       <span>{label}</span>
-    </button>
+    </Button>
   )
 }

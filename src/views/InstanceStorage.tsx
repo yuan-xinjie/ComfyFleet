@@ -1,3 +1,5 @@
+import { Checkbox, DirectoryInput } from '../components/Form'
+import Button from '../components/Button'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, errText } from '../lib/api'
 import { DIR_MODE_LABEL, SOURCE_LABEL, modelTypeLabel } from '../lib/storage'
@@ -47,6 +49,15 @@ function IoChoice(props: {
     }
   }
 
+  const choose = async () => {
+    try {
+      const path = await api.pickFolder()
+      if (path) onChange({ mode: 'custom', path })
+    } catch (e) {
+      notify('err', errText(e))
+    }
+  }
+
   return (
     <div className="field">
       <label>{label}</label>
@@ -61,7 +72,7 @@ function IoChoice(props: {
             onChange({ mode: next, path: next === 'custom' ? value.path : null })
           }
         />
-        <button
+        <Button
           type="button"
           className="ghost sm icon-btn"
           aria-label={`打开${label}`}
@@ -70,16 +81,18 @@ function IoChoice(props: {
           disabled={!target}
         >
           <Icon name="folder" size={13} />
-        </button>
+        </Button>
       </div>
       {mode === 'custom' && (
-        <input
+        <DirectoryInput
+          wrapperClassName="inline-input wide"
           className="mono"
           aria-label={`自定义${label}`}
           placeholder="D:\\comfyui\\my-input"
           value={value.path ?? ''}
           spellCheck={false}
           onChange={(e) => onChange({ mode: 'custom', path: e.target.value })}
+          onPick={() => void choose()}
         />
       )}
     </div>
@@ -104,7 +117,7 @@ function EffectiveRow(props: {
       </span>
       {isDefault && <span className="badge warn">下载落点</span>}
       {!exists && <span className="badge danger">不存在</span>}
-      <button
+      <Button
         className="ghost sm icon-btn"
         aria-label={`打开${label}`}
         title={exists ? '打开目录' : '目录还不存在'}
@@ -112,7 +125,7 @@ function EffectiveRow(props: {
         onClick={() => void api.openPath(path).catch((e) => notify('err', errText(e)))}
       >
         <Icon name="folder" size={13} />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -225,7 +238,7 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
         </div>
         <div className="panel-body">
           <label className="check-row">
-            <input
+            <Checkbox
               type="checkbox"
               checked={form.useSharedModels}
               onChange={(e) => setForm({ ...form, useSharedModels: e.target.checked })}
@@ -246,7 +259,7 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
                 const off = form.disabledSharedModels.some((path) => samePath(path, opt.path))
                 return (
                   <label key={opt.path} className={`share-row${off ? ' off' : ''}`}>
-                    <input
+                    <Checkbox
                       type="checkbox"
                       checked={!off}
                       onChange={() =>
@@ -317,14 +330,14 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
         <div className="panel-head">
           <h2>启动时实际生效</h2>
           <div className="spacer" />
-          <button
+          <Button
             className="ghost sm"
             onClick={() => void loadPlan(form)}
             title="按当前草稿重新计算"
           >
             <Icon name="refresh" size={13} />
             刷新
-          </button>
+          </Button>
         </div>
         <div className="panel-body">
           {plan ? (
