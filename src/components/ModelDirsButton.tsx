@@ -1,10 +1,10 @@
 import Button from './Button'
+import IconTextButton from './IconTextButton'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errText } from '../lib/api'
-import { SOURCE_LABEL, modelTypeLabel } from '../lib/storage'
+import { MODEL_SOURCE_LABEL, modelTypeLabel } from '../lib/storage'
 import type { InstanceConfig, StorageDir } from '../types'
-import Icon from './Icon'
 
 interface Props {
   inst: InstanceConfig
@@ -165,9 +165,9 @@ export default function ModelDirsButton({ inst, notify }: Props) {
 
   return (
     <>
-      <Button
+      <IconTextButton
         ref={btnRef}
-        type="button"
+        icon="box"
         className="dir-btn"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -188,9 +188,8 @@ export default function ModelDirsButton({ inst, notify }: Props) {
           }
         }}
       >
-        <Icon name="box" size={14} />
         模型目录
-      </Button>
+      </IconTextButton>
 
       {open &&
         pos &&
@@ -215,7 +214,9 @@ export default function ModelDirsButton({ inst, notify }: Props) {
                 onClick={() => void openOne(dir)}
               >
                 <span className="model-dir-top">
-                  <span className="model-dir-source">{SOURCE_LABEL[dir.source] ?? dir.source}</span>
+                  <span className="model-dir-source">
+                    {MODEL_SOURCE_LABEL[dir.source] ?? dir.source}
+                  </span>
                   <span className="model-dir-flags">
                     {dir.isDefault && <span className="model-dir-flag">下载落点</span>}
                     {!dir.exists && <span className="model-dir-flag danger">不存在</span>}

@@ -1873,12 +1873,6 @@ pub fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), AppError> {
         {
             return Err(AppError::new("SYNC_UNZIP", "压缩包含符号链接，已拒绝"));
         }
-        total = total
-            .checked_add(entry.size())
-            .ok_or_else(|| AppError::new("SYNC_UNZIP", "解压尺寸溢出"))?;
-        if total > MAX_UNZIPPED {
-            return Err(AppError::new("SYNC_UNZIP", "解压后总量过大，拒绝解压"));
-        }
         let out = dest.join(rel);
         if !out.starts_with(dest) {
             return Err(AppError::new("SYNC_UNZIP", "压缩包路径越界，已拒绝"));
@@ -1891,7 +1885,26 @@ pub fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), AppError> {
             fs::create_dir_all(parent)?;
         }
         let mut f = File::create(&out)?;
-        std::io::copy(&mut entry, &mut f)?;
+        // entry.size() 只是中央目录里的声明值，不能当作实际写入量：
+        // 恶意 zip 可以声明很小、实际解压很大，所以这里边写边累加真实字节。
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = entry.read(&mut buf).map_err(|e| {
+                AppError::new("SYNC_UNZIP", format!("解压 {} 失败，{e}", out.display()))
+            })?;
+            if n == 0 {
+                break;
+            }
+            total = total
+                .checked_add(n as u64)
+                .ok_or_else(|| AppError::new("SYNC_UNZIP", "解压尺寸溢出"))?;
+            if total > MAX_UNZIPPED {
+                drop(f);
+                let _ = fs::remove_file(&out);
+                return Err(AppError::new("SYNC_UNZIP", "解压后总量过大，拒绝解压"));
+            }
+            std::io::Write::write_all(&mut f, &buf[..n])?;
+        }
     }
     Ok(())
 }
@@ -5907,15 +5920,14 @@ fn apply_models(
             committed = true;
         }
         if options.remove_extra_models {
+            let backup_root = backups_dir().join(&job.id).join("models");
             for removed in &diff.models.removed {
-                let relative = Path::new(&removed.relative_path);
-                if relative.is_absolute()
-                    || relative
-                        .components()
-                        .any(|c| matches!(c, Component::ParentDir))
-                {
+                // 删除是对远端清单最敏感的一步：必须和新增/修改使用同一套路径校验，
+                // 不能只判绝对路径和 `..`（Windows 的盘符、ADS、保留名都会漏）。
+                if !safe_relative_path(&removed.relative_path) {
                     continue;
                 }
+                let relative = Path::new(&removed.relative_path);
                 // 同一相对路径可能出现在多个生效模型目录里（实例自带的 models、
                 // 附加目录、共享库）。清理必须删掉实际存在的那一份，而不是只删默认库。
                 for target in plan
@@ -5924,7 +5936,10 @@ fn apply_models(
                     .filter_map(|dir| model_path_in(dir, &removed.relative_path))
                     .filter(|path| path.is_file())
                 {
-                    let backup = backups_dir().join(&job.id).join("models").join(relative);
+                    let backup = backup_root.join(relative);
+                    if !backup.starts_with(&backup_root) {
+                        continue;
+                    }
                     if let Some(parent) = backup.parent() {
                         fs::create_dir_all(parent)?;
                     }
@@ -5961,6 +5976,14 @@ pub fn apply_job(
     pre_write_cancel: &AtomicBool,
     on_progress: &mut dyn FnMut(u8, &str),
 ) -> Result<SyncReport, AppError> {
+    // job.id / generation_id 来自 Leader，目标端不能再假设它们是 UUID：
+    // 它们会被拼进 inbox / backups 等本地路径，必须先做和代次 id 相同的词法校验。
+    if !safe_generation_id(&job.id) {
+        return Err(AppError::new("SYNC_JOB_ID", "同步任务 id 不合法"));
+    }
+    if !safe_generation_id(&job.generation_id) {
+        return Err(AppError::new("SYNC_JOB_ID", "同步代次 id 不合法"));
+    }
     // 同步应用会长时间改写核心/venv/节点/模型；必须和启动、安装、切版本、删除
     // 使用同一把每实例操作锁。否则同步中途启动/删除会留下半应用目录或幽灵实例。
     let _op = crate::state::OpGuard::acquire(&job.target_instance_id, "同步应用")?;
@@ -8302,6 +8325,18 @@ mod tests {
         assert!(!safe_relative_path("models/trailing "));
         assert!(!safe_relative_path("models/ads:payload"));
         assert!(!safe_relative_path("."));
+    }
+
+    #[test]
+    fn job_ids_reject_path_parts_before_joining_local_dirs() {
+        assert!(safe_generation_id("9f2c1e0a4b8d"));
+        assert!(safe_generation_id("model-direct-job"));
+        assert!(!safe_generation_id(""));
+        assert!(!safe_generation_id("../outside"));
+        assert!(!safe_generation_id("a/b"));
+        assert!(!safe_generation_id("a\\b"));
+        assert!(!safe_generation_id("C:outside"));
+        assert!(!safe_generation_id(&"a".repeat(81)));
     }
 
     #[test]

@@ -560,6 +560,48 @@ pub fn run_ok(
     Ok(out.stdout.trim().to_string())
 }
 
+/// 把本地绝对路径变成 `file:///D:/...`。uv / pip 的 `--constraint` 参数
+/// 在 Windows 上会在空格处截断，传 file URL 可以绕开；路径里的空格、`#`、
+/// 中文等都会做百分号编码。
+pub fn path_to_file_url(path: &Path) -> String {
+    fn encode(out: &mut String, text: &str) {
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        for b in text.bytes() {
+            match b {
+                b'A'..=b'Z'
+                | b'a'..=b'z'
+                | b'0'..=b'9'
+                | b'-'
+                | b'.'
+                | b'_'
+                | b'~'
+                | b'/'
+                | b':' => out.push(b as char),
+                _ => {
+                    out.push('%');
+                    out.push(HEX[(b >> 4) as usize] as char);
+                    out.push(HEX[(b & 0x0f) as usize] as char);
+                }
+            }
+        }
+    }
+
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let mut url = String::from("file:");
+    if let Some(unc) = normalized.strip_prefix("//") {
+        url.push_str("//");
+        encode(&mut url, unc);
+    } else if let Some(rest) = normalized.strip_prefix('/') {
+        url.push_str("//");
+        encode(&mut url, "/");
+        encode(&mut url, rest);
+    } else {
+        url.push_str("///");
+        encode(&mut url, &normalized);
+    }
+    url
+}
+
 /// 目录大小（MiB），用于节点列表展示；读不了就返回 0，不要让列表整体失败
 pub fn dir_size_mib(dir: &Path) -> u32 {
     fn walk(dir: &Path, acc: &mut u64, depth: u32) {
@@ -590,6 +632,22 @@ pub fn dir_size_mib(dir: &Path) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_url_quotes_spaces_for_uv() {
+        assert_eq!(
+            path_to_file_url(Path::new(r"D:\Program Files\ComfyFleet\data\tmp\c.txt")),
+            "file:///D:/Program%20Files/ComfyFleet/data/tmp/c.txt"
+        );
+        assert_eq!(
+            path_to_file_url(Path::new(r"D:\项目 目录\a#b.txt")),
+            "file:///D:/%E9%A1%B9%E7%9B%AE%20%E7%9B%AE%E5%BD%95/a%23b.txt"
+        );
+        assert_eq!(
+            path_to_file_url(Path::new(r"\\server\share\a b.txt")),
+            "file://server/share/a%20b.txt"
+        );
+    }
 
     #[test]
     fn run_captures_output_and_exit_code() {

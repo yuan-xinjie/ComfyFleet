@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactElement } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 
 /**
  * 一套自绘图标：24 网格、1.75 描边、圆头圆角。
@@ -15,6 +15,8 @@ export type IconName =
   | 'stop'
   | 'globe'
   | 'refresh'
+  | 'search'
+  | 'link'
   | 'folder'
   | 'copy'
   | 'cut'
@@ -26,6 +28,8 @@ export type IconName =
   | 'alert'
   | 'info'
   | 'chevron'
+  | 'up'
+  | 'down'
   | 'box'
   | 'clock'
   | 'chip'
@@ -93,6 +97,18 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M20 4.5V11h-6.4" />
     </>
   ),
+  search: (
+    <>
+      <circle cx="10.8" cy="10.8" r="6.3" />
+      <path d="m16 16 4 4" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 13.5a4 4 0 0 0 5.7.1l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7" />
+      <path d="M14 10.5a4 4 0 0 0-5.7-.1l-3 3a4 4 0 0 0 5.7 5.7l1.7-1.7" />
+    </>
+  ),
   folder: (
     <>
       <path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l2 2.2h6.8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2V7.5Z" />
@@ -145,6 +161,8 @@ const PATHS: Record<IconName, ReactElement> = {
     </>
   ),
   chevron: <path d="m6 9.5 6 6 6-6" />,
+  up: <path d="m6 14.5 6-6 6 6" />,
+  down: <path d="m6 9.5 6 6 6-6" />,
   box: (
     <>
       <path d="M20 8.2v7.6a1.6 1.6 0 0 1-.8 1.4l-6.4 3.6a1.6 1.6 0 0 1-1.6 0l-6.4-3.6a1.6 1.6 0 0 1-.8-1.4V8.2" />
@@ -219,9 +237,61 @@ interface Props {
   className?: string
 }
 
+interface IconOffset {
+  x: number
+  y: number
+}
+
+const NO_OFFSET: IconOffset = { x: 0, y: 0 }
+/** 每个图标的墨迹包围盒相对 24 格画布的偏移；同一图标只量一次。 */
+const ICON_OFFSETS = new Map<IconName, IconOffset>()
+
+/**
+ * 自绘图标都画在 24 格画布里，但不同图形的墨迹中心并不都在 (12,12)。
+ * 这里按实际包围盒把图形移到画布中心，图标按钮、文字内图标和下拉箭头才不会一个偏上一个偏下。
+ */
 export default function Icon({ name, size = 16, style, className }: Props) {
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const artRef = useRef<SVGGElement | null>(null)
+  const [offset, setOffset] = useState<IconOffset>(() => ICON_OFFSETS.get(name) ?? NO_OFFSET)
+
+  useLayoutEffect(() => {
+    const cached = ICON_OFFSETS.get(name)
+    if (cached) {
+      setOffset((prev) => (prev === cached ? prev : cached))
+      return
+    }
+    const svg = svgRef.current
+    const art = artRef.current
+    if (!svg || !art) return
+
+    const measure = () => {
+      const known = ICON_OFFSETS.get(name)
+      if (known) {
+        setOffset((prev) => (prev === known ? prev : known))
+        return
+      }
+      const box = art.getBBox()
+      if (!box.width || !box.height) return
+      const next = {
+        x: 12 - (box.x + box.width / 2),
+        y: 12 - (box.y + box.height / 2),
+      }
+      ICON_OFFSETS.set(name, next)
+      setOffset(next)
+    }
+
+    measure()
+    if (ICON_OFFSETS.has(name) || typeof ResizeObserver === 'undefined') return
+    // 隐藏页签里的图标第一次量不到尺寸；等它真正有布局后再补一次。
+    const observer = new ResizeObserver(measure)
+    observer.observe(svg)
+    return () => observer.disconnect()
+  }, [name])
+
   return (
     <svg
+      ref={svgRef}
       className={`icon${className ? ` ${className}` : ''}`}
       width={size}
       height={size}
@@ -233,9 +303,12 @@ export default function Icon({ name, size = 16, style, className }: Props) {
       strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
+      data-icon={name}
       style={style}
     >
-      {PATHS[name]}
+      <g transform={`translate(${offset.x} ${offset.y})`}>
+        <g ref={artRef}>{PATHS[name]}</g>
+      </g>
     </svg>
   )
 }

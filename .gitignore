@@ -19,6 +19,7 @@ src-tauri/resources/uv.exe
 .dsh-tools/
 shot*.png
 _screenshot/
+_analysis_resources
 
 # impeccable 评审留档（截图、临时脚本、roll 记录，本地保留即可）
 .impeccable/

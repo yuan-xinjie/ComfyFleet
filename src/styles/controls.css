@@ -17,7 +17,7 @@
   width: 100%;
   min-width: 0;
   min-height: 36px;
-  padding: 7px 12px;
+  padding: 7px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: #050509;
@@ -51,14 +51,18 @@
 .select-trigger:active:not(:disabled) { transform: none; }
 
 .select-value {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 和卡片标题同一套中文视觉居中，避免下拉文字看起来悬在上方。 */
+  transform: translateY(1px);
 }
 .select-value.placeholder { color: var(--ink-4); }
 .select-caret {
   flex: none;
+  margin-left: auto;
   color: var(--ink-3);
   transition: transform 0.16s var(--ease), color 0.16s var(--ease);
 }
@@ -67,6 +71,62 @@
   transform: rotate(180deg);
 }
 
+/* 可编辑 trigger：外框还是下拉的样子，里面直接敲字，箭头按钮开候选 */
+.select-trigger.is-editable {
+  gap: 4px;
+  padding: 0 6px 0 10px;
+  cursor: text;
+}
+.select-trigger.is-editable:focus-within {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+/* 全局 input 规则（含主题里的高特异度规则）会把内嵌输入框撑成独立控件，这里全部抹平 */
+.select .select-trigger.is-editable .select-input,
+.select .select-trigger.is-editable .select-input:hover {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font: inherit;
+  outline: none;
+}
+.select .select-trigger.is-editable .select-input:focus {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.select .select-trigger.is-editable .select-input::placeholder { color: var(--ink-4); }
+.select.mirror-select .select-trigger.is-editable .select-input {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.select-caret-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 0.14s var(--ease), color 0.14s var(--ease);
+}
+.select-caret-btn:hover { background: var(--hover-fill); color: var(--ink); }
+.select-caret-btn .select-caret { margin-left: 0; }
+
 .select-menu {
   z-index: 1200;
   overflow-y: auto;
@@ -74,7 +134,17 @@
   padding: 5px;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
-  background: var(--modal, #0c0c14);
+  /* 浮层必须实色，否则下面的字段文字会透上来；文字按实色卡片色取黑/白。 */
+  --ink: var(--card-solid-ink, var(--theme-ink));
+  --ink-2: var(--card-solid-ink-2, var(--theme-ink-2));
+  --ink-3: var(--card-solid-ink-3, var(--theme-ink-3));
+  --ink-4: var(--card-solid-ink-4, var(--theme-ink-4));
+  --silver: var(--card-solid-ink, var(--theme-ink));
+  --silver-2: var(--card-solid-ink-2, var(--theme-ink-2));
+  --silver-3: var(--card-solid-ink-3, var(--theme-ink-3));
+  --blue-ink: var(--card-solid-blue-ink, #8fb0ff);
+  background: var(--card-color);
+  color: var(--ink-2);
   box-shadow: 0 22px 56px -20px rgba(0, 0, 0, 0.86), 0 2px 10px rgba(0, 0, 0, 0.32);
   transform-origin: top center;
   animation: select-pop 0.14s var(--ease-out);
@@ -82,6 +152,30 @@
 .select-menu.up {
   transform-origin: bottom center;
   animation-name: select-pop-up;
+}
+.select-search {
+  position: sticky;
+  top: -5px;
+  z-index: 2;
+  padding: 5px 4px 7px;
+  background: var(--card-color);
+}
+.select-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunken);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.select-search-input::placeholder { color: var(--ink-4); }
+.select-search-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-ring);
 }
 
 .select-option {
@@ -98,7 +192,7 @@
   text-align: left;
   cursor: pointer;
 }
-.select-option.active { background: rgba(255, 255, 255, 0.065); color: var(--ink); }
+.select-option.active { background: var(--hover-1); color: var(--ink); }
 .select-option[aria-selected='true'] {
   background: var(--blue-wash);
   color: var(--ink);
@@ -128,7 +222,7 @@
   padding: 1px 6px;
   border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-1);
   color: var(--ink-3);
   font-size: 10.5px;
   line-height: 1.55;
@@ -240,7 +334,7 @@
   width: auto;
   height: 28px;
   min-height: 28px;
-  padding: 0 24px 0 8px;
+  padding: 0 10px 0 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: #050509;
@@ -253,23 +347,85 @@
 .flag-value .select-trigger {
   height: 26px;
   min-height: 26px;
-  padding: 0 22px 0 7px;
+  padding: 0 8px 0 7px;
   border-radius: 6px;
   font-size: 12px;
 }
 .flag-value .select-caret { width: 13px; height: 13px; }
 
+/* 目录行：路径框、类型下拉、落点按钮同高；按钮定宽，跨行对齐 */
+.dir-row .dir-path {
+  height: 34px;
+  min-height: 34px;
+}
 .dir-row .select.dir-type {
   flex: 0 0 208px;
   width: 208px;
+  height: 34px;
 }
 .dir-row .select.dir-type .select-trigger {
-  height: 30px;
-  min-height: 30px;
-  padding: 0 26px 0 9px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px 0 9px;
   border-radius: 8px;
   font-size: 12px;
 }
+.dir-row .dir-type-input {
+  flex: 0 0 208px;
+  width: 208px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px 0 9px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.dir-row button.dir-default {
+  flex: 0 0 116px;
+  width: 116px;
+  height: 34px;
+  padding: 0 10px;
+  justify-content: center;
+}
+.dir-row button.icon-btn {
+  width: 34px;
+  height: 34px;
+}
+/* 单目录行（共享输入/输出、wheels 库）跟模型目录行同高同宽 */
+.dir-single input {
+  height: 34px;
+  min-height: 34px;
+}
+
+/* 路径输入框：右侧内嵌「选择文件夹」按钮，行里不再单占按钮位 */
+.path-input {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.path-input > input {
+  width: 100%;
+  padding-right: 36px;
+}
+.path-input-pick {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  margin-top: -13px;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 0.14s var(--ease), color 0.14s var(--ease);
+}
+.path-input-pick:hover:not(:disabled) { background: var(--hover-fill); color: var(--ink); }
+.path-input-pick:disabled { color: var(--ink-4); cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
   .select-menu { animation: none; }
@@ -290,17 +446,26 @@
   line-height: 15px;
 }
 .settings-name { max-width: 520px; }
-/* 名称占 1/3、目录占 2/3；目录说明留在弹层里，不在字段下再挂一行小字 */
+/* 与下面的三列引擎网格共用同一条 1/3、2/3 边界 */
 .settings-identity {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   align-items: end;
 }
 .settings-identity .settings-name { max-width: none; }
+.settings-identity .settings-directory { grid-column: 2 / -1; }
 .settings-identity .inline-input { min-width: 0; }
+button.ghost.settings-field-action {
+  height: 36px;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.settings-field-action > .icon { flex: none; }
 @media (max-width: 640px) {
   .settings-identity { grid-template-columns: minmax(0, 1fr); }
+  .settings-identity .settings-directory { grid-column: auto; }
 }
 .engine-grid {
   display: grid;
@@ -320,6 +485,18 @@
 }
 .engine-lock-key { color: var(--ink-3); }
 .engine-lock .mono { font-size: 11.5px; color: var(--ink-2); }
+/* 长地址占 2/3、短前缀与开关占 1/3，仍落在同一条三列网格上 */
+.settings-mirror {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.settings-mirror > .settings-mirror-wide { grid-column: span 2; }
+@media (max-width: 860px) {
+  .settings-mirror { grid-template-columns: minmax(0, 1fr); }
+  .settings-mirror > .settings-mirror-wide { grid-column: auto; }
+}
 .settings-inline {
   display: flex;
   align-items: center;

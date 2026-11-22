@@ -23,8 +23,11 @@ pub const DATA_DIR_ENV: &str = "COMFYFLEET_DATA_DIR";
 /// v3 增加 UV 缓存自动清理阈值（默认 10 GB）；
 /// v4 清掉旧版默认的 PyPI / PyTorch 镜像，默认走官方源；
 /// v5 拆成暗色 / 亮色两套配色，并给卡片单独的颜色；
-/// v6 本地 wheel 库默认落到数据目录下的 wheel/
-const SETTINGS_VERSION: u32 = 6;
+/// v6 本地 wheel 库默认落到数据目录下的 wheel/；
+/// v8 共享模型目录可以全部删光，不再自动补回默认目录；
+/// v9 界面字体拆成英文 / 中文 / 等宽三项独立选择；
+/// v10 字体改为本机字体族名称，不再使用内置字体 id
+const SETTINGS_VERSION: u32 = 10;
 
 /// 旧版默认 PyPI 镜像。升级到 v4 时如果配置里还是这个值，视为没改过，直接清空
 const LEGACY_DEFAULT_PYPI: &str = "https://mirrors.aliyun.com/pypi/simple/";
@@ -456,6 +459,9 @@ pub struct ThemePalette {
     pub bg_bottom: String,
     /// 卡片 / 面板底色；透明度另外统一控制
     pub card_color: String,
+    /// 底栏底色；透明度由 ui.bar_transparency 单独控制
+    #[serde(default)]
+    pub bar_color: String,
 }
 
 pub const DEFAULT_ACCENT: &str = "#2b63ff";
@@ -467,8 +473,16 @@ pub const DEFAULT_LIGHT_BG_TOP: &str = "#f7f9ff";
 pub const DEFAULT_LIGHT_BG_MID: &str = "#eef2fa";
 pub const DEFAULT_LIGHT_BG_BOTTOM: &str = "#e3e9f4";
 pub const DEFAULT_LIGHT_CARD_COLOR: &str = "#ffffff";
+pub const DEFAULT_DARK_BAR_COLOR: &str = "#090b14";
+pub const DEFAULT_LIGHT_BAR_COLOR: &str = "#ffffff";
 pub const DEFAULT_CARD_TRANSPARENCY: u8 = 12;
 pub const MAX_CARD_TRANSPARENCY: u8 = 80;
+pub const DEFAULT_BAR_TRANSPARENCY: u8 = 64;
+pub const MAX_BAR_TRANSPARENCY: u8 = 80;
+pub const DEFAULT_BAR_FOLLOW_CARD: bool = false;
+pub const DEFAULT_FONT_LATIN: &str = "Segoe UI";
+pub const DEFAULT_FONT_CJK: &str = "Microsoft YaHei UI";
+pub const DEFAULT_FONT_MONO: &str = "Cascadia Mono";
 pub const DEFAULT_TASK_BAR_IDLE: &str = "auto";
 pub const DEFAULT_NOTICE_SECONDS: u32 = 3;
 pub const MIN_NOTICE_SECONDS: u32 = 1;
@@ -508,6 +522,7 @@ pub fn default_dark_palette() -> ThemePalette {
         bg_mid: DEFAULT_BG_MID.to_string(),
         bg_bottom: DEFAULT_BG_BOTTOM.to_string(),
         card_color: DEFAULT_CARD_COLOR.to_string(),
+        bar_color: DEFAULT_DARK_BAR_COLOR.to_string(),
     }
 }
 
@@ -518,6 +533,7 @@ pub fn default_light_palette() -> ThemePalette {
         bg_mid: DEFAULT_LIGHT_BG_MID.to_string(),
         bg_bottom: DEFAULT_LIGHT_BG_BOTTOM.to_string(),
         card_color: DEFAULT_LIGHT_CARD_COLOR.to_string(),
+        bar_color: DEFAULT_LIGHT_BAR_COLOR.to_string(),
     }
 }
 
@@ -538,6 +554,16 @@ pub struct UiOpts {
     pub light: ThemePalette,
     /// 卡片透明度（0–100%）：0 为不透明，数字越大越透。
     pub card_transparency: u8,
+    /// 底栏透明度（0–100%）：0 为不透明，数字越大越透。
+    pub bar_transparency: u8,
+    /// 底栏透明度是否直接跟随卡片透明度。
+    pub bar_follow_card: bool,
+    /// 英文字体族名称（来自本机字体库）。
+    pub font_latin: String,
+    /// 中文字体族名称（来自本机字体库）。
+    pub font_cjk: String,
+    /// 等宽字体族名称（来自本机字体库）。
+    pub font_mono: String,
     /// 空闲任务条：auto = 自动隐藏（悬浮底部时出现），always = 常驻。
     pub task_bar_idle: String,
     /// 成功任务与操作通知的停留秒数（1–5）。
@@ -545,7 +571,7 @@ pub struct UiOpts {
     pub notice_seconds: u32,
     /// 无任务时的内容：animation = 图标动画，time = 时间，custom = 自定义文字。
     pub island_idle_content: String,
-    /// 无任务动画的形态：dots = 圆点，chevrons = 箭头，targets = 圆环。
+    /// 无任务动画的形态：dots = 圆点，chevrons = 箭头，targets = 圆环，eyes = 眼睛。
     pub island_idle_shape: String,
     /// 空闲胶囊宽度（64–200px）。
     pub island_width: u8,
@@ -586,6 +612,11 @@ impl Default for UiOpts {
             dark: default_dark_palette(),
             light: default_light_palette(),
             card_transparency: DEFAULT_CARD_TRANSPARENCY,
+            bar_transparency: DEFAULT_BAR_TRANSPARENCY,
+            bar_follow_card: DEFAULT_BAR_FOLLOW_CARD,
+            font_latin: DEFAULT_FONT_LATIN.to_string(),
+            font_cjk: DEFAULT_FONT_CJK.to_string(),
+            font_mono: DEFAULT_FONT_MONO.to_string(),
             task_bar_idle: DEFAULT_TASK_BAR_IDLE.to_string(),
             notice_seconds: DEFAULT_NOTICE_SECONDS,
             island_idle_content: DEFAULT_ISLAND_IDLE_CONTENT.to_string(),
@@ -653,13 +684,17 @@ impl GlobalSettings {
         let only_default_entry = self.storage.shared_models.len() == 1
             && same_path(&self.storage.shared_models[0].path, &default_root)
             && self.storage.shared_models[0].type_name.is_none();
-        if self.storage.shared_models.is_empty() {
+        // v8 起允许把共享模型目录全部删光；只有升级前的空列表才补默认目录。
+        if self.storage.shared_models.is_empty() && self.version < 8 {
             self.storage.shared_models = vec![ModelDir {
                 path: self.paths.models_root.clone(),
                 type_name: None,
                 is_default: true,
             }];
-        } else if only_default_entry && !same_path(&self.paths.models_root, &default_root) {
+        } else if only_default_entry
+            && !self.storage.shared_models.is_empty()
+            && !same_path(&self.paths.models_root, &default_root)
+        {
             self.storage.shared_models[0].path = self.paths.models_root.clone();
         }
         normalize_model_dirs(&mut self.storage.shared_models);
@@ -726,6 +761,7 @@ impl GlobalSettings {
                 bg_mid: legacy_bg_mid.unwrap_or_else(|| DEFAULT_BG_MID.to_string()),
                 bg_bottom: legacy_bg_bottom.unwrap_or_else(|| DEFAULT_BG_BOTTOM.to_string()),
                 card_color: DEFAULT_CARD_COLOR.to_string(),
+                bar_color: DEFAULT_DARK_BAR_COLOR.to_string(),
             };
             self.ui.light = default_light_palette();
         }
@@ -752,8 +788,57 @@ impl GlobalSettings {
             clean_color(&mut palette.bg_mid, &defaults.bg_mid);
             clean_color(&mut palette.bg_bottom, &defaults.bg_bottom);
             clean_color(&mut palette.card_color, &defaults.card_color);
+            clean_color(&mut palette.bar_color, &defaults.bar_color);
         }
         self.ui.card_transparency = self.ui.card_transparency.min(MAX_CARD_TRANSPARENCY);
+        self.ui.bar_transparency = self.ui.bar_transparency.min(MAX_BAR_TRANSPARENCY);
+        // 旧版的字体 id 迁移成本机字体族名称；新版的字体族名称原样保留。
+        fn clean_font(value: &mut String, fallback: &str, legacy: &[(&str, &str)]) {
+            let raw = value.trim();
+            let mapped = legacy
+                .iter()
+                .find(|(id, _)| raw.eq_ignore_ascii_case(id))
+                .map(|(_, name)| *name)
+                .unwrap_or(raw);
+            let cleaned: String = mapped
+                .chars()
+                .filter(|c| {
+                    !c.is_control() && !matches!(c, '"' | '\'' | '\\' | ';' | '{' | '}' | ',')
+                })
+                .take(80)
+                .collect();
+            let cleaned = cleaned.trim();
+            *value = if cleaned.is_empty() {
+                fallback.to_string()
+            } else {
+                cleaned.to_string()
+            };
+        }
+        clean_font(
+            &mut self.ui.font_latin,
+            DEFAULT_FONT_LATIN,
+            &[("geist", "Segoe UI"), ("plex", "Segoe UI"), ("system", "Segoe UI")],
+        );
+        clean_font(
+            &mut self.ui.font_cjk,
+            DEFAULT_FONT_CJK,
+            &[
+                ("yahei", "Microsoft YaHei UI"),
+                ("dengxian", "DengXian"),
+                ("simsun", "SimSun"),
+                ("simhei", "SimHei"),
+            ],
+        );
+        clean_font(
+            &mut self.ui.font_mono,
+            DEFAULT_FONT_MONO,
+            &[
+                ("geist-mono", "Cascadia Mono"),
+                ("plex-mono", "Cascadia Mono"),
+                ("cascadia", "Cascadia Mono"),
+                ("consolas", "Consolas"),
+            ],
+        );
         if self.ui.task_bar_idle != "always" {
             self.ui.task_bar_idle = DEFAULT_TASK_BAR_IDLE.to_string();
         }
@@ -768,7 +853,7 @@ impl GlobalSettings {
         }
         if !matches!(
             self.ui.island_idle_shape.as_str(),
-            "dots" | "chevrons" | "targets"
+            "dots" | "chevrons" | "targets" | "eyes"
         ) {
             self.ui.island_idle_shape = DEFAULT_ISLAND_IDLE_SHAPE.to_string();
         }
@@ -1172,6 +1257,11 @@ mod tests {
         assert!(!s.network.hf_offline, "缺省应为 false");
         assert_eq!(s.ui.font_size, 13);
         assert_eq!(s.ui.card_transparency, DEFAULT_CARD_TRANSPARENCY);
+        assert_eq!(s.ui.bar_transparency, DEFAULT_BAR_TRANSPARENCY);
+        assert!(!s.ui.bar_follow_card);
+        assert_eq!(s.ui.font_latin, DEFAULT_FONT_LATIN);
+        assert_eq!(s.ui.font_cjk, DEFAULT_FONT_CJK);
+        assert_eq!(s.ui.font_mono, DEFAULT_FONT_MONO);
         assert_eq!(s.ui.task_bar_idle, DEFAULT_TASK_BAR_IDLE);
         assert_eq!(s.ui.island_idle_content, DEFAULT_ISLAND_IDLE_CONTENT);
         assert_eq!(s.ui.island_idle_shape, DEFAULT_ISLAND_IDLE_SHAPE);
@@ -1196,6 +1286,32 @@ mod tests {
     }
 
     #[test]
+    fn old_palette_without_bar_color_gets_mode_default() {
+        let raw = r#"{
+            "version": 6,
+            "ui": {
+                "theme": "light",
+                "dark": {},
+                "light": {}
+            }
+        }"#;
+        let mut s: GlobalSettings = serde_json::from_str(raw).expect("old palette should parse");
+        s.normalize();
+        assert_eq!(s.ui.dark.bar_color, DEFAULT_DARK_BAR_COLOR);
+        assert_eq!(s.ui.light.bar_color, DEFAULT_LIGHT_BAR_COLOR);
+        assert_eq!(s.ui.bar_transparency, DEFAULT_BAR_TRANSPARENCY);
+        assert!(!s.ui.bar_follow_card);
+    }
+
+    #[test]
+    fn bar_transparency_is_clamped() {
+        let mut s = GlobalSettings::default();
+        s.ui.bar_transparency = 200;
+        s.normalize();
+        assert_eq!(s.ui.bar_transparency, MAX_BAR_TRANSPARENCY);
+    }
+
+    #[test]
     fn snapshot_limit_is_clamped() {
         let mut s = GlobalSettings::default();
         s.sync.snapshot_max = 0;
@@ -1213,7 +1329,7 @@ mod tests {
         s.sync.snapshot_max = 200;
         s.normalize();
         assert_eq!(s.sync.snapshot_max, 20, "旧的默认 200 应迁到新默认 20");
-        assert_eq!(s.version, 6);
+        assert_eq!(s.version, SETTINGS_VERSION);
 
         let mut custom = GlobalSettings::default();
         custom.version = 1;
@@ -1223,7 +1339,7 @@ mod tests {
             custom.sync.snapshot_max, 150,
             "用户主动设置的其它值不能被覆盖"
         );
-        assert_eq!(custom.version, 6);
+        assert_eq!(custom.version, SETTINGS_VERSION);
     }
 
     #[test]
@@ -1235,7 +1351,7 @@ mod tests {
         old.wheels = None;
         old.normalize();
         assert_eq!(old.wheels.as_deref(), Some(expected.as_str()));
-        assert_eq!(old.version, 6);
+        assert_eq!(old.version, SETTINGS_VERSION);
 
         let mut custom = GlobalSettings::default();
         custom.version = 5;
@@ -1263,7 +1379,7 @@ mod tests {
         s.normalize();
         assert!(s.mirrors.pypi.is_none(), "旧默认 PyPI 镜像应清空");
         assert!(s.mirrors.torch.is_none(), "旧默认 PyTorch 镜像应清空");
-        assert_eq!(s.version, 6);
+        assert_eq!(s.version, SETTINGS_VERSION);
 
         let mut custom = GlobalSettings::default();
         custom.version = 3;
@@ -1359,6 +1475,36 @@ mod tests {
             MAX_ISLAND_IDLE_TEXT_CHARS
         );
         assert!(!s.ui.island_idle_text.starts_with(' '));
+    }
+
+    #[test]
+    fn font_choices_migrate_legacy_ids_and_keep_local_families() {
+        let mut s = GlobalSettings::default();
+        s.ui.font_latin = "Cool Sans".to_string();
+        s.ui.font_cjk = "思源黑体".to_string();
+        s.ui.font_mono = "Consolas".to_string();
+        s.normalize();
+        assert_eq!(s.ui.font_latin, "Cool Sans");
+        assert_eq!(s.ui.font_cjk, "思源黑体");
+        assert_eq!(s.ui.font_mono, "Consolas");
+
+        // 0.2.12 存的是字体 id，升级后映射到系统字体。
+        s.ui.font_latin = "plex".to_string();
+        s.ui.font_cjk = "dengxian".to_string();
+        s.ui.font_mono = "consolas".to_string();
+        s.normalize();
+        assert_eq!(s.ui.font_latin, "Segoe UI");
+        assert_eq!(s.ui.font_cjk, "DengXian");
+        assert_eq!(s.ui.font_mono, "Consolas");
+
+        // 空值 / 控制字符 / CSS 引号与分隔符不能落盘，回退到系统默认。
+        s.ui.font_latin = " \u{7} ".to_string();
+        s.ui.font_cjk = "\u{7}\u{8}".to_string();
+        s.ui.font_mono = "".to_string();
+        s.normalize();
+        assert_eq!(s.ui.font_latin, DEFAULT_FONT_LATIN);
+        assert_eq!(s.ui.font_cjk, DEFAULT_FONT_CJK);
+        assert_eq!(s.ui.font_mono, DEFAULT_FONT_MONO);
     }
 
     #[test]
@@ -1508,6 +1654,7 @@ mod tests {
     #[test]
     fn legacy_models_root_migrates_into_shared_models() {
         let mut s = GlobalSettings::default();
+        s.version = 7;
         s.storage.shared_models.clear();
         s.paths.models_root = "D:\\models".to_string();
 
@@ -1519,11 +1666,25 @@ mod tests {
         assert!(s.storage.shared_models[0].type_name.is_none());
     }
 
+    /// v8 起允许用户把共享模型目录全部删光，保存后不能又被默认目录顶回来。
+    #[test]
+    fn cleared_shared_models_stay_empty() {
+        let mut s = GlobalSettings::default();
+        s.storage.shared_models.clear();
+
+        s.normalize();
+
+        assert!(s.storage.shared_models.is_empty());
+        assert!(s.paths.models_root.is_empty());
+        assert_eq!(s.version, SETTINGS_VERSION);
+    }
+
     /// The legacy default models path moves with the data directory.
     #[test]
     fn legacy_default_models_root_is_rewritten() {
         let legacy_models = legacy_root().join("shared").join("models");
         let mut s = GlobalSettings::default();
+        s.version = 7;
         s.storage.shared_models.clear();
         s.paths.models_root = legacy_models.to_string_lossy().to_string();
 

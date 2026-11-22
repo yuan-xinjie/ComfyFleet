@@ -3,7 +3,7 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::commands::instance::{load_instance, save_instance};
+use crate::commands::instance::{config_write_guard, load_instance, save_instance};
 use crate::config::{self, InstanceState};
 use crate::error::AppError;
 use crate::gpu::{self, GpuInfo};
@@ -503,7 +503,9 @@ pub async fn env_install(
 
     // 状态机：Installing → Ready / Error（失败不隐藏，让用户看到红标并能重试）
     {
-        let mut cfg = inst.clone();
+        // 安装开始前用户可能刚保存过启动参数/存储设置；重新读，不能拿旧快照覆盖。
+        let _write = config_write_guard();
+        let mut cfg = load_instance(&instance_id)?;
         cfg.state = InstanceState::Installing;
         save_instance(&cfg).map_err(|e| {
             AppError::new(
@@ -535,7 +537,8 @@ pub async fn env_install(
 
     {
         // 安装期间用户可能改了端口/存储/名称；重新读，只覆盖 state/version，
-        // 不能拿安装开始前的 inst 快照整体写回。
+        // 不能拿安装开始前的 inst 快照整体写回。保存设置与这里的读改写互斥。
+        let _write = config_write_guard();
         let mut cfg = load_instance(&instance_id).unwrap_or_else(|_| inst.clone());
         match &outcome {
             Ok(report) => {

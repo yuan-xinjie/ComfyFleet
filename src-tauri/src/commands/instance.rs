@@ -27,6 +27,25 @@ fn registry_guard() -> std::sync::MutexGuard<'static, ()> {
     REGISTRY_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// 实例配置的读-改-写串行锁。
+///
+/// 安装期间允许保存启动参数/存储设置，但安装结束写状态时也要重新读配置；
+/// 两边的 load→modify→save 必须互斥，否则后写的一方会覆盖先写的一方。
+static CONFIG_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub(crate) fn config_write_guard() -> std::sync::MutexGuard<'static, ()> {
+    CONFIG_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 安装类长操作只改环境，不碰启动参数/存储目录；允许此时保存这些配置。
+const CONFIG_SAVE_ALLOWED_OPS: &[&str] = &[
+    "安装环境",
+    "初始化环境",
+    "安装节点依赖",
+    "安装节点",
+    "安装云端轮子",
+];
+
 fn marker_path(root: &Path) -> PathBuf {
     root.join(INSTANCE_META_DIR).join(INSTANCE_MARKER)
 }
@@ -1220,11 +1239,23 @@ pub fn refresh_instance_env(inst: &mut InstanceConfig) -> LiveEnv {
 
 /// 设置项/ 概览页主动重读真实环境：探测后只在有变化时落盘。
 #[tauri::command]
-pub async fn instance_env_refresh(instance_id: String) -> Result<LiveEnv, AppError> {
+pub async fn instance_env_refresh(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<LiveEnv, AppError> {
+    let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let app_state = handle.state::<crate::state::AppState>();
         let _op = crate::state::OpGuard::acquire(&instance_id, "重读环境")?;
         let mut inst = load_instance(&instance_id)?;
-        let live = refresh_instance_env(&mut inst);
+        let mut live = refresh_instance_env(&mut inst);
+        // 概览读的是 instance.json 的缓存；顺手用 Git 的实际状态纠正，
+        // 避免外部更新 ComfyUI 后概览与版本页长期显示不同版本。
+        if let Ok(git) = crate::commands::version::git_exe(&handle, app_state.inner()) {
+            if crate::commands::version::sync_instance_core_cache(&git, &mut inst) {
+                live.changed = true;
+            }
+        }
         if live.changed {
             save_instance(&inst)?;
             log::info!(
@@ -2544,7 +2575,9 @@ pub struct UpdateLaunchReq {
 /// 刚写进去的值带回旧值。
 #[tauri::command]
 pub fn instance_launch_update(req: UpdateLaunchReq) -> Result<InstanceConfig, AppError> {
-    let _op = crate::state::OpGuard::acquire(&req.id, "保存启动参数")?;
+    let _op =
+        crate::state::OpGuard::acquire_alongside(&req.id, "保存启动参数", CONFIG_SAVE_ALLOWED_OPS)?;
+    let _write = config_write_guard();
     let mut cfg = load_instance(&req.id)?;
     let before = cfg.clone();
     let (listen, port) = validate_server(&req.listen, req.port)?;
@@ -2793,7 +2826,9 @@ pub struct UpdateStorageReq {
 
 #[tauri::command]
 pub fn instance_storage_update(req: UpdateStorageReq) -> Result<InstanceConfig, AppError> {
-    let _op = crate::state::OpGuard::acquire(&req.id, "保存存储设置")?;
+    let _op =
+        crate::state::OpGuard::acquire_alongside(&req.id, "保存存储设置", CONFIG_SAVE_ALLOWED_OPS)?;
+    let _write = config_write_guard();
     let mut cfg = load_instance(&req.id)?;
     let mut storage = InstanceStorage {
         use_shared_models: req.use_shared_models,
@@ -3008,6 +3043,49 @@ mod tests {
             auto_restart: false,
             allow_env_change,
         }
+    }
+
+    #[test]
+    fn launch_save_is_allowed_while_install_holds_the_instance() {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let root = std::env::temp_dir().join(format!("comfyfleet-install-save-{id}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut cfg = sample();
+        cfg.id = id.clone();
+        cfg.name = "安装时保存测试".to_string();
+        cfg.root_dir = root.to_string_lossy().to_string();
+        cfg.state = InstanceState::Installing;
+        std::fs::create_dir_all(config::instances_dir().join(&id)).unwrap();
+        save_instance(&cfg).unwrap();
+
+        let install = crate::state::OpGuard::acquire(&id, "安装环境").unwrap();
+        let updated = instance_launch_update(UpdateLaunchReq {
+            id: id.clone(),
+            listen: "127.0.0.1".to_string(),
+            port: 8123,
+            cors_origin: None,
+            extra_args: vec!["--install-save-test".to_string()],
+        })
+        .unwrap();
+        assert_eq!(updated.server.port, 8123);
+        let storage = instance_storage_update(UpdateStorageReq {
+            id: id.clone(),
+            use_shared_models: false,
+            disabled_shared_models: Vec::new(),
+            extra_models: Vec::new(),
+            input: Default::default(),
+            output: Default::default(),
+        })
+        .unwrap();
+        assert!(!storage.storage.use_shared_models);
+        let stored = load_instance(&id).unwrap();
+        assert_eq!(stored.server.port, 8123);
+        assert!(!stored.storage.use_shared_models);
+        assert!(matches!(stored.state, InstanceState::Installing));
+        drop(install);
+
+        let _ = std::fs::remove_dir_all(config::instances_dir().join(&id));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -3233,6 +3311,8 @@ mod tests {
             }
             let cfg = match load_instance(&id) {
                 Ok(c) => c,
+                // 其他测试可能在同一测试数据目录里创建并删除临时实例；扫描时刚被删掉就跳过。
+                Err(e) if e.code == "NOT_FOUND" => continue,
                 Err(e) => panic!("实例 {id} 加载失败，{}", e.message),
             };
             if let Some(fresh) = engine_detail(&cfg.engine).unwrap_or(None) {

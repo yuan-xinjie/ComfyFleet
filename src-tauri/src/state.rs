@@ -39,6 +39,30 @@ impl OpGuard {
         Ok(Self { id: id.to_string() })
     }
 
+    /// 配置写入与某些安装类长操作不冲突时，允许并行保存。
+    ///
+    /// 安装只改环境，不改启动参数/存储目录；保存这些设置不需要等安装结束。
+    /// 这里不接管 OPS 槽位：如果当前是允许的安装操作，返回的 guard 不拥有锁，
+    /// 安装结束时仍由原来的 guard 释放。
+    pub fn acquire_alongside(
+        id: &str,
+        kind: &str,
+        allowed_current: &[&str],
+    ) -> Result<Self, AppError> {
+        let mut slot = OPS.lock();
+        let map = slot.get_or_insert_with(HashMap::new);
+        match map.get(id) {
+            None => {
+                map.insert(id.to_string(), kind.to_string());
+                Ok(Self { id: id.to_string() })
+            }
+            Some(current) if allowed_current.contains(&current.as_str()) => {
+                Ok(Self { id: String::new() })
+            }
+            Some(current) => Err(busy_error(current, kind)),
+        }
+    }
+
     /// 只在占用者是某个短操作时等待，其他长操作仍然立即报忙。
     /// 用于启动/停止不要被“重读环境”这种探测挡住。
     pub fn acquire_waiting_for(
@@ -71,6 +95,10 @@ impl OpGuard {
 
 impl Drop for OpGuard {
     fn drop(&mut self) {
+        // acquire_alongside 在安装期间返回的 guard 不拥有槽位，不能误删安装锁。
+        if self.id.is_empty() {
+            return;
+        }
         if let Some(map) = OPS.lock().as_mut() {
             map.remove(&self.id);
         }
@@ -180,6 +208,30 @@ mod tests {
         std::thread::sleep(Duration::from_millis(80));
         drop(env);
         assert!(waiter.join().unwrap());
+    }
+
+    #[test]
+    fn config_save_is_allowed_during_install() {
+        let id = "test-config-save-during-install";
+        let allowed = ["安装环境"];
+        let install = OpGuard::acquire(id, "安装环境").unwrap();
+        let save = OpGuard::acquire_alongside(id, "保存启动参数", &allowed).unwrap();
+        drop(save);
+        // 保存结束后安装锁仍必须存在；drop 共享 guard 不能误删它。
+        let err = OpGuard::acquire(id, "启动").unwrap_err();
+        assert_eq!(err.code, "INSTANCE_BUSY");
+        drop(install);
+        assert!(OpGuard::acquire(id, "启动").is_ok());
+    }
+
+    #[test]
+    fn config_save_still_rejects_unrelated_operations() {
+        let id = "test-config-save-during-update";
+        let allowed = ["安装环境"];
+        let update = OpGuard::acquire(id, "更新版本").unwrap();
+        let err = OpGuard::acquire_alongside(id, "保存存储设置", &allowed).unwrap_err();
+        assert_eq!(err.code, "INSTANCE_BUSY");
+        drop(update);
     }
 
     #[test]

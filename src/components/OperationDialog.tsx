@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import Icon from './Icon'
 import { api, type NetSpeed } from '../lib/api'
 import { playIslandWindowCollapse, playIslandWindowMorph } from '../lib/windowMorph'
+import { isNearLogBottom } from '../lib/logScroll'
 
 export type OperationState = 'running' | 'ok' | 'failed' | 'cancelled'
 export type OperationTab = 'detail' | 'console'
@@ -263,15 +264,20 @@ export default function OperationDialog({
   )
   const consoleRef = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  /** 最近一次内容变高的时间：内容变动引起的瞬时滚动不能当成用户上翻。 */
+  const contentAtRef = useRef(0)
   const latestByStep = new Map<string, OperationLine>()
   for (const ev of events) latestByStep.set(ev.step, ev)
   const consoleLines = buildConsoleLines(events)
 
-  useEffect(() => {
-    if (tab !== 'console' || !stick.current) return
+  useLayoutEffect(() => {
+    if (tab !== 'console') return
+    contentAtRef.current = performance.now()
+    if (!stick.current) return
     const el = consoleRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [events.length, tab])
+    // 事件列表会截断到固定上限，追加后 length 可能不变；依赖实际数组。
+  }, [events, tab])
 
   // 从任务条当前位置展开成详情窗口；任务条被遮住时也能取到它的尺寸。
   useLayoutEffect(() => {
@@ -487,7 +493,15 @@ export default function OperationDialog({
               aria-label={`${title}控制台`}
               onScroll={(e) => {
                 const el = e.currentTarget
-                stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 36
+                if (isNearLogBottom(el)) {
+                  stick.current = true
+                  return
+                }
+                if (performance.now() - contentAtRef.current < 150) return
+                stick.current = false
+              }}
+              onWheel={(e) => {
+                if (e.deltaY < 0) stick.current = false
               }}
             >
               {consoleLines.length === 0 ? (

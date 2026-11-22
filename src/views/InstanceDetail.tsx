@@ -1,4 +1,5 @@
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { api, errText } from '../lib/api'
 import { startupDepsTargets } from '../lib/deps'
@@ -15,7 +16,16 @@ import { TABS, stateText, type InstTab } from '../lib/state'
 import { comfyPath } from '../lib/paths'
 import { type TabSaveHandle } from '../lib/useTabSave'
 import { useInstanceLogStream } from '../lib/useInstanceLogStream'
-import { TQDM_RE, deriveLogTask, stageLabel } from '../lib/runProgress'
+import { useInstanceProgress } from '../lib/useInstanceProgress'
+import {
+  TQDM_RE,
+  deriveLogTask,
+  isDownloadStage,
+  latestProgress,
+  progressFromStructured,
+  stageLabel,
+  structuredProgressList,
+} from '../lib/runProgress'
 import ConsoleDock from '../components/ConsoleDock'
 import { PopPresence } from '../components/PopPresence'
 import type { IslandAction } from '../components/TaskBar'
@@ -81,6 +91,8 @@ const MIN_OVERVIEW_SPLIT = 0.35
 const MAX_OVERVIEW_SPLIT = 0.72
 const MODEL_MIN_WIDTH = 280
 const NODE_MIN_WIDTH = 450
+/** 实例页控制台浮层保留的日志行数；与后端内存缓冲上限一致。 */
+const CONSOLE_LOG_LINES = 600
 
 function readOverviewSplit(): number {
   try {
@@ -202,7 +214,12 @@ export default function InstanceDetail(props: Props) {
   const [runBusyLabel, setRunBusyLabel] = useState<'启动中' | '停止中'>('启动中')
   const [health, setHealth] = useState<Health | null>(null)
   const [readAt, setReadAt] = useState<string | null>(null)
-  const { lines: tail, clear: clearTail } = useInstanceLogStream(inst.id, active, 300)
+  const { lines: tail, clear: clearTail } = useInstanceLogStream(
+    inst.id,
+    active,
+    CONSOLE_LOG_LINES,
+  )
+  const { progress: structuredProgress } = useInstanceProgress(inst.id, running)
   const [progress, setProgress] = useState<{
     title: string
     logs: string[]
@@ -219,6 +236,10 @@ export default function InstanceDetail(props: Props) {
   const [opTab, setOpTab] = useState<OperationTab>('detail')
   const [envBusy, setEnvBusy] = useState(false)
   const [versionBusy, setVersionBusy] = useState(false)
+  const [wheelBusy, setWheelBusy] = useState(false)
+  const [snapshotBusy, setSnapshotBusy] = useState(false)
+  const [nodesBusy, setNodesBusy] = useState(false)
+  const [settingsBusy, setSettingsBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [tabSaves, setTabSaves] = useState<Partial<Record<InstTab, TabSaveHandle>>>({})
   const [mountedTabs, setMountedTabs] = useState<Record<InstTab, boolean>>(() =>
@@ -543,6 +564,14 @@ export default function InstanceDetail(props: Props) {
     }
   }
 
+  const openFullLog = async () => {
+    try {
+      await api.instanceOpenLog(inst.id)
+    } catch (e) {
+      notify('err', errText(e))
+    }
+  }
+
   // 底栏已移到灵动岛。这里只登记“当前确实可用”的操作；按钮事件始终读最新句柄。
   const islandHandlers = useRef({ start, stop, openBrowser, save: dirtySave })
   islandHandlers.current = { start, stop, openBrowser, save: dirtySave }
@@ -554,6 +583,11 @@ export default function InstanceDetail(props: Props) {
     runBusyLabel,
     envBusy ? 1 : 0,
     versionBusy ? 1 : 0,
+    wheelBusy ? 1 : 0,
+    snapshotBusy ? 1 : 0,
+    nodesBusy ? 1 : 0,
+    settingsBusy ? 1 : 0,
+    installing ? 1 : 0,
     installed ? 1 : 0,
     anyTabDirty ? 1 : 0,
     inst.state,
@@ -576,17 +610,11 @@ export default function InstanceDetail(props: Props) {
       if (!busyRun) {
         runActions.push({
           id: 'stop',
-          label: inst.state === 'starting' ? '取消启动' : '停止实例',
+          label: inst.state === 'starting' ? '取消启动' : '停止',
           variant: 'danger',
           onClick: () => void handlers.stop(),
         })
       }
-      runActions.push({
-        id: 'browser',
-        label: '打开浏览器',
-        variant: 'ghost',
-        onClick: () => void handlers.openBrowser(),
-      })
     }
 
     if (busyRun) {
@@ -601,6 +629,11 @@ export default function InstanceDetail(props: Props) {
         installed &&
         !envBusy &&
         !versionBusy &&
+        !wheelBusy &&
+        !snapshotBusy &&
+        !nodesBusy &&
+        !settingsBusy &&
+        !installing &&
         !anyTabDirty &&
         inst.state !== 'installing' &&
         inst.state !== 'updating' &&
@@ -766,15 +799,26 @@ export default function InstanceDetail(props: Props) {
     health && health.ramTotalMib > 0 ? Math.min(100, (health.ramUsedMib / health.ramTotalMib) * 100) : 0
   const gpuUtil = health?.gpuUtilization ?? null
   const logTask = useMemo(() => deriveLogTask(tail), [tail])
-  // 日志还没吐出 tqdm、但队列里确实有任务时，先给一条不确定进度
-  const fallbackWhat =
-    logTask.stage === '采样' ? '正在执行' : stageLabel(logTask.stage)
+  const structured = useMemo(() => {
+    const latest = latestProgress(structuredProgress)
+    return latest ? progressFromStructured(latest) : null
+  }, [structuredProgress])
+  const structuredBars = useMemo(() => structuredProgressList(structuredProgress), [structuredProgress])
+  const activeStage = structured?.stage ?? logTask.stage
+  const downloading = isDownloadStage(activeStage)
+  // 日志还没吐出进度、但队列里确实有任务时，阶段只是未知，不要沿用旧阶段。
+  // 没有结构化条时，用日志推断出的阶段顶一下；任务结束后不再显示泛泛的“正在执行”。
+  const logStage = logTask.started && !logTask.ended ? stageLabel(logTask.stage) : null
+  // 队列已经空了以后，日志里的上一轮阶段不能继续冒充当前进度。
+  const queueActive = (health?.queueRunning ?? 0) > 0 || (health?.queuePending ?? 0) > 0
   const comfyProgress = running
-    ? (logTask.task ??
-      (health && health.queueRunning > 0 && !logTask.ended
-        ? { what: fallbackWhat, value: 0, max: 0, speed: null }
+    ? (structured?.task ??
+      (queueActive
+        ? (logTask.task ??
+          (logStage ? { what: logStage, label: logStage, value: 0, max: 0, speed: null } : null))
         : null))
     : null
+  const consoleProgresses = structuredBars.length > 0 ? structuredBars : comfyProgress ? [comfyProgress] : []
   // 进度条常驻时给节点列表留出被它压住的高度，最后一行不用和浮层抢位置
   const consoleBar =
     running && (!!comfyProgress || (health?.queueRunning ?? 0) > 0 || (health?.queuePending ?? 0) > 0)
@@ -843,7 +887,7 @@ export default function InstanceDetail(props: Props) {
 
   const generationPending = health?.queuePending ?? 0
   const generationTitle = comfyProgress
-    ? comfyProgress.what
+    ? (comfyProgress.label ?? comfyProgress.what)
     : generationPending > 0
       ? `排队 ${generationPending}`
       : '正在执行'
@@ -868,11 +912,12 @@ export default function InstanceDetail(props: Props) {
       tab !== 'console' &&
       !consoleOpen &&
       running &&
-      (!!comfyProgress || (health?.queueRunning ?? 0) > 0 || generationPending > 0)
+      !downloading &&
+      (!!comfyProgress || generationPending > 0)
       ? {
           id: `generate-${inst.id}`,
           title: generationTitle,
-          phase: logTask.stage,
+          phase: activeStage,
           detail: generationDetail,
           speed: comfyProgress?.speed,
           state: 'running',
@@ -928,18 +973,18 @@ export default function InstanceDetail(props: Props) {
             />
           )}
           {TABS.map((t) => (
-            <Button
+            <IconTextButton
               key={t.id}
               role="tab"
               aria-selected={tab === t.id}
               className={`tab${tab === t.id ? ' active' : ''}`}
               onClick={() => setTab(t.id)}
               title={`${tabSaves[t.id]?.dirty ? '有未保存修改 · ' : ''}Ctrl+${t.key}`}
-            >
-              <Icon name={TAB_ICON[t.id]} size={14} />
+             icon={TAB_ICON[t.id]} iconSize={14}>
+              
               {t.label}
               {tabSaves[t.id]?.dirty && <span className="tab-dirty" aria-hidden />}
-            </Button>
+            </IconTextButton>
           ))}
         </div>
       </div>
@@ -993,41 +1038,41 @@ export default function InstanceDetail(props: Props) {
                     {installing ? '安装中…' : envBusy ? '读取中…' : installed ? '修复环境' : '安装环境'}
                   </Button>
                 )}
-                <Button className="ghost sm" onClick={() => void openDir(inst.rootDir)} title="在资源管理器里打开实例目录">
-                  <Icon name="folder" size={13} />
+                <IconTextButton className="ghost sm" onClick={() => void openDir(inst.rootDir)} title="在资源管理器里打开实例目录" icon="folder" iconSize={13}>
+                  
                   打开目录
-                </Button>
-                <Button
+                </IconTextButton>
+                <IconTextButton
                   className="ghost sm"
                   onClick={() => void openDir(comfyPath(inst, 'custom_nodes'))}
                   disabled={!installed}
                   title="打开 custom_nodes"
-                >
-                  <Icon name="nodes" size={13} />
+                 icon="nodes" iconSize={13}>
+                  
                   节点目录
-                </Button>
-                <Button className="ghost sm" onClick={() => setTab('storage')} disabled={!installed}>
-                  <Icon name="box" size={13} />
+                </IconTextButton>
+                <IconTextButton className="ghost sm" onClick={() => setTab('storage')} disabled={!installed} icon="box" iconSize={13}>
+                  
                   模型与存储
-                </Button>
+                </IconTextButton>
                 <PopPresence show={running}>
-                  <Button
+                  <IconTextButton
                     className="ghost sm"
                     onClick={() => void openBrowser()}
                     title="在浏览器里打开 ComfyUI"
-                  >
-                    <Icon name="globe" size={13} />
+                   icon="globe" iconSize={13}>
+                    
                     打开浏览器
-                  </Button>
+                  </IconTextButton>
                 </PopPresence>
-                <Button className="ghost sm" onClick={() => void copyUrl()} title="复制 ComfyUI 地址">
-                  <Icon name={copied ? 'check' : 'copy'} size={13} />
+                <IconTextButton className="ghost sm" onClick={() => void copyUrl()} title="复制 ComfyUI 地址" icon={copied ? 'check' : 'copy'} iconSize={13}>
+                  
                   {copied ? '已复制' : '复制地址'}
-                </Button>
-                <Button className="ghost sm" onClick={() => setDiagOpen(true)}>
-                  <Icon name="diagnostics" size={13} />
+                </IconTextButton>
+                <IconTextButton className="ghost sm" onClick={() => setDiagOpen(true)} icon="diagnostics" iconSize={13}>
+                  
                   诊断
-                </Button>
+                </IconTextButton>
               </div>
               {running ? (
                 <div className="metrics">
@@ -1157,9 +1202,9 @@ export default function InstanceDetail(props: Props) {
                 inst={inst}
                 notify={notify}
                 installIntent={depsIntent}
-                onDiagnose={() => setDiagOpen(true)}
                 onChanged={() => void onReload()}
                 onOpenSnapshots={() => setTab('snapshots')}
+                onBusyChange={setNodesBusy}
               />
               {overviewSplitter}
               <ModelCard
@@ -1198,15 +1243,15 @@ export default function InstanceDetail(props: Props) {
             }}
             footer={
               installing ? (
-                <Button
+                <IconTextButton
                   className="ghost stop"
                   onClick={() => void cancelInstall()}
                   disabled={cancelling}
                   title="终止当前安装步骤并清理子进程"
-                >
-                  <Icon name="stop" size={13} />
+                 icon="stop" iconSize={13}>
+                  
                   {cancelling ? '正在取消…' : '取消安装'}
-                </Button>
+                </IconTextButton>
               ) : null
             }
           >
@@ -1240,7 +1285,6 @@ export default function InstanceDetail(props: Props) {
             instanceId={inst.id}
             instanceName={inst.name}
             active={active && tab === 'console'}
-            externalProgress={comfyProgress}
           />
         </div>
       </TabPane>
@@ -1293,6 +1337,7 @@ export default function InstanceDetail(props: Props) {
             onChanged={() => {
               void onReload()
             }}
+            onBusyChange={setSnapshotBusy}
           />
         </div>
       </TabPane>
@@ -1313,8 +1358,14 @@ export default function InstanceDetail(props: Props) {
                 void onReload()
               }}
               notify={notify}
+              onBusyChange={setSettingsBusy}
             />
-            <WheelPanel inst={inst} running={running} notify={notify} />
+            <WheelPanel
+              inst={inst}
+              running={running}
+              notify={notify}
+              onBusyChange={setWheelBusy}
+            />
           </div>
         </div>
       </TabPane>
@@ -1366,7 +1417,9 @@ export default function InstanceDetail(props: Props) {
         onClose={() => onConsoleOpenChange(false)}
         running={running}
         installed={installed}
+        progresses={consoleProgresses}
         lines={tail}
+        onOpenFullLog={() => void openFullLog()}
         onOpenTerminal={() => setTab('console')}
       />
 

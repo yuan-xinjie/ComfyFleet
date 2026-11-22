@@ -1,4 +1,5 @@
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type {
@@ -505,16 +506,16 @@ export default function Versions({
           {info && <span className={`badge ${dev ? 'ghost' : 'ok'}`}>{channelText}</span>}
           <div className="spacer" />
           {logs.length > 0 && (
-            <Button
+            <IconTextButton
               className="ghost sm"
               onClick={() => setConsoleOpen(true)}
               title="重看上一次切换 / 更新的输出"
-            >
-              <Icon name="console" size={13} />
+             icon="console" iconSize={13}>
+              
               查看日志
-            </Button>
+            </IconTextButton>
           )}
-          <Button
+          <IconTextButton
             className="ghost sm"
             onClick={() => void check()}
             disabled={busy || detached || loading}
@@ -525,11 +526,11 @@ export default function Versions({
                   ? '先停止实例'
                   : '与远端比对提交数'
             }
-          >
-            <Icon name="refresh" size={13} />
+           icon="refresh" iconSize={13}>
+            
             检查更新
-          </Button>
-          <Button
+          </IconTextButton>
+          <IconTextButton
             className="primary sm"
             onClick={() => void requestUpdate()}
             disabled={busy || dirtyLoading || detached || loading || !canSwitch || wrongBranch}
@@ -542,10 +543,10 @@ export default function Versions({
                     ? `版本更新固定跟随 ${DEV_BRANCH}；先切到开发版 ${DEV_BRANCH}`
                     : `拉取 ${DEV_BRANCH} 的最新提交；工作区有改动时会先确认清理清单`
             }
-          >
-            <Icon name="download" size={13} />
+           icon="download" iconSize={13}>
+            
             更新到最新
-          </Button>
+          </IconTextButton>
         </div>
         <div className="panel-body" style={{ paddingTop: 6 }}>
           {error && <div className="banner err">{error}</div>}
@@ -627,15 +628,15 @@ export default function Versions({
           <span className="hint nowrap">
             {tab === 'stable' ? '旧版本按需下载' : '开发版提交列表'}
           </span>
-          <Button
+          <IconTextButton
             className="ghost sm"
             onClick={() => void (tab === 'stable' ? load() : loadCommits(true))}
             disabled={tab === 'stable' ? loading : commitsLoading}
             title={tab === 'stable' ? '重新拉取稳定版 tag 列表' : '重新拉取 master 的提交列表'}
-          >
-            <Icon name="refresh" size={13} />
+           icon="refresh" iconSize={13}>
+            
             刷新
-          </Button>
+          </IconTextButton>
         </div>
 
         <div className="panel-body" style={{ padding: 0 }}>
@@ -705,10 +706,10 @@ export default function Versions({
                 </span>
                 <strong>没读到版本列表</strong>
                 <span className="hint">检查网络或镜像设置，然后重试；已安装的版本不受影响。</span>
-                <Button className="ghost sm" onClick={() => void load()} disabled={loading}>
-                  <Icon name="refresh" size={13} />
+                <IconTextButton className="ghost sm" onClick={() => void load()} disabled={loading} icon="refresh" iconSize={13}>
+                  
                   重试
-                </Button>
+                </IconTextButton>
               </div>
             ) : (
               <div className="tag-list">
@@ -782,10 +783,10 @@ export default function Versions({
                   <span className="hint">
                     离线或没有 origin 时读不到历史；仍可直接跟随 {DEV_BRANCH}。
                   </span>
-                  <Button className="ghost sm" onClick={() => void loadCommits(true)} disabled={commitsLoading}>
-                    <Icon name="refresh" size={13} />
+                  <IconTextButton className="ghost sm" onClick={() => void loadCommits(true)} disabled={commitsLoading} icon="refresh" iconSize={13}>
+                    
                     重试
-                  </Button>
+                  </IconTextButton>
                 </div>
               )}
               {!commitsLoading &&
@@ -846,15 +847,15 @@ export default function Versions({
                 复制日志
               </Button>
               {consoleState === 'running' && (
-                <Button
+                <IconTextButton
                   className="ghost stop"
                   onClick={() => void cancelVersion()}
                   disabled={cancelling}
                   title="终止依赖安装"
-                >
-                  <Icon name="stop" size={13} />
+                 icon="stop" iconSize={13}>
+                  
                   {cancelling ? '正在取消…' : '取消依赖安装'}
-                </Button>
+                </IconTextButton>
               )}
             </>
           }

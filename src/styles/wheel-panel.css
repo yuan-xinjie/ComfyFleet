@@ -1,30 +1,5 @@
 /* 云端轮子仓库：一个包一张卡，点开后再选具体版本。 */
 
-.wheel-panel-source {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-}
-.wheel-panel-source > .mono {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink-3);
-  font-size: 10.5px;
-}
-.wheel-panel-count {
-  flex: none;
-  margin-left: auto;
-  color: var(--ink-4);
-  font-size: 10.5px;
-}
-
 /* ---------------------------------------------------------------- 包卡片 */
 .wheel-package-grid {
   display: grid;
@@ -40,7 +15,7 @@
   padding: 12px 13px 11px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--card);
   cursor: pointer;
   transition:
     border-color 0.18s var(--ease),
@@ -48,7 +23,7 @@
 }
 .wheel-package-card:hover {
   border-color: var(--line-strong);
-  background: var(--surface-2);
+  background: var(--card-hover);
 }
 .wheel-package-card:focus-visible {
   outline: 2px solid var(--blue);
@@ -238,7 +213,7 @@
   padding: 12px 13px 11px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--card);
 }
 .wheel-package-skeleton span {
   height: 9px;
@@ -540,14 +515,6 @@ button.wheel-filter-link:hover {
 }
 
 @media (max-width: 720px) {
-  .wheel-panel-source {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .wheel-panel-count {
-    margin-left: 0;
-  }
   .wheel-package-modal {
     width: 100%;
   }

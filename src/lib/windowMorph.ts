@@ -7,7 +7,6 @@ const EASE = 'cubic-bezier(0.4, 0, 0.2, 1)'
 interface Shape {
   rect: DOMRect
   radius: string
-  border: string
   background: string
 }
 
@@ -17,7 +16,6 @@ function shapeOf(el: HTMLElement): Shape {
   return {
     rect,
     radius: style.borderRadius,
-    border: style.borderColor,
     background: style.backgroundColor,
   }
 }
@@ -35,7 +33,6 @@ function islandShape(): Shape | null {
     return {
       rect,
       radius: style.borderRadius,
-      border: style.borderColor,
       background: style.backgroundColor,
     }
   }
@@ -49,10 +46,21 @@ function frame(shape: Shape, offset: number) {
     width: `${shape.rect.width}px`,
     height: `${shape.rect.height}px`,
     borderRadius: shape.radius,
-    borderColor: shape.border,
     backgroundColor: shape.background,
     offset,
   }
+}
+
+let activeMorphs = 0
+
+function beginMorph(): void {
+  activeMorphs += 1
+  if (activeMorphs === 1) document.body.classList.add('island-morph-active')
+}
+
+function endMorph(): void {
+  activeMorphs = Math.max(0, activeMorphs - 1)
+  if (activeMorphs === 0) document.body.classList.remove('island-morph-active')
 }
 
 function mount(from: Shape, to: Shape, duration: number): HTMLElement {
@@ -64,11 +72,18 @@ function mount(from: Shape, to: Shape, duration: number): HTMLElement {
   node.style.width = `${from.rect.width}px`
   node.style.height = `${from.rect.height}px`
   node.style.borderRadius = from.radius
-  node.style.borderColor = from.border
   node.style.backgroundColor = from.background
   document.body.appendChild(node)
+  // 形变层自己会盖住岛的真实位置；岛如果继续显示，会在亮色主题下露出
+  // 一块白胶囊和黑色岛叠在一起。形变期间先藏岛，结束后由调用方还原。
+  beginMorph()
   node.animate([frame(from, 0), frame(to, 1)], { duration, easing: EASE })
   return node
+}
+
+function unmount(node: HTMLElement): void {
+  node.remove()
+  endMorph()
 }
 
 /**
@@ -106,7 +121,7 @@ export function playIslandWindowMorph(target: HTMLElement): (() => void) | undef
     if (finished) return
     finished = true
     window.clearTimeout(revealTimer)
-    node.remove()
+    unmount(node)
     target.classList.remove('is-window-morphing')
     target.classList.remove('is-window-revealing')
   }
@@ -115,7 +130,7 @@ export function playIslandWindowMorph(target: HTMLElement): (() => void) | undef
     finished = true
     window.clearTimeout(revealTimer)
     animation?.cancel()
-    node.remove()
+    unmount(node)
     target.classList.remove('is-window-morphing')
     target.classList.remove('is-window-revealing')
   }
@@ -142,7 +157,7 @@ export function playIslandWindowCollapse(target: HTMLElement | null): void {
   const node = mount(from, to, COLLAPSE_MS)
   const animation = node.getAnimations()[0]
   const finish = () => {
-    node.remove()
+    unmount(node)
     target.classList.remove('is-window-morphing')
   }
   if (animation) {

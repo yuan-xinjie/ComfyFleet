@@ -1,4 +1,5 @@
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type { ActivityEntry, InstanceConfig } from '../types'
@@ -127,15 +128,15 @@ export default function Activity({ inst }: Props) {
             </span>
           )}
           <div className="spacer" />
-          <Button
+          <IconTextButton
             className="ghost sm"
             onClick={() => void load()}
             disabled={busy}
             title="重新读取日志"
-          >
-            <Icon name="refresh" size={13} />
+           icon="refresh" iconSize={13}>
+            
             {busy ? '刷新中…' : '刷新'}
-          </Button>
+          </IconTextButton>
         </div>
         <div className="panel-body">
           {error && <div className="banner err">{error}</div>}

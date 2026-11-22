@@ -1,5 +1,6 @@
 import { TextInput, TextArea, Checkbox, DirectoryInput } from '../components/Form'
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Select from '../components/Select'
 import Icon from '../components/Icon'
@@ -28,6 +29,8 @@ interface Props {
   onSaved: (updated: InstanceConfig) => void
   notify: (kind: 'ok' | 'err', msg: string) => void
   onSaveState: (state: TabSaveHandle | null) => void
+  /** 更换 torch/CUDA/Python 时正在重装环境，灵动岛隐藏启动按钮。 */
+  onBusyChange?: (busy: boolean) => void
 }
 
 const STEP_LABEL: Record<string, string> = {
@@ -55,6 +58,17 @@ function parseKv(text: string): Record<string, string> {
     out[line.slice(0, at).trim()] = line.slice(at + 1).trim()
   }
   return out
+}
+
+/** 返回第一条无法解析成 KEY=VALUE 的行号（从 1 开始）。 */
+function envInvalidLine(text: string): number | null {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim()
+    if (!line || line.startsWith('#')) continue
+    if (line.indexOf('=') <= 0) return i + 1
+  }
+  return null
 }
 
 function kvToText(map: Record<string, string>): string {
@@ -88,7 +102,14 @@ function groupEngines(engines: EngineOption[]): EngineGroup[] {
   return groups
 }
 
-export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveState }: Props) {
+export default function InstanceSettings({
+  inst,
+  plan,
+  onSaved,
+  notify,
+  onSaveState,
+  onBusyChange,
+}: Props) {
   const [name, setName] = useState(inst.name)
   const [engine, setEngine] = useState(inst.engine)
   const [pythonVersion, setPythonVersion] = useState(pythonMinor(inst.pythonVersion))
@@ -127,6 +148,14 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
   const [opPhase, setOpPhase] = useState('准备中')
   const [opPercent, setOpPercent] = useState(0)
   const [opTab, setOpTab] = useState<OperationTab>('detail')
+
+  useEffect(() => {
+    onBusyChange?.(Boolean(switchLog?.running))
+  }, [switchLog?.running, onBusyChange])
+
+  useEffect(() => {
+    return () => onBusyChange?.(false)
+  }, [onBusyChange])
 
   const currentEngine = plan?.engines.find((e) => e.id === engine) ?? null
   // 矩阵外的 torch 版本没有对应的 engine id：选中的仍是同 CUDA 轨道的通用档，
@@ -171,9 +200,11 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
     [inst],
   )
   const missingEnvPath = pyMode === 'existing' && !pyPath.trim()
+  const envBadLine = useMemo(() => envInvalidLine(envText), [envText])
   // 与保存时相同的归一化再比较：服务端会 trim 名称/路径、重排 env，
   // 不归一化会导致“保存完还是未保存”。
   const dirty =
+    envBadLine !== null ||
     JSON.stringify({
       name: name.trim(),
       engine,
@@ -399,6 +430,10 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
       notify('err', '选择已有环境时，必须先填环境路径')
       return
     }
+    if (envBadLine !== null) {
+      notify('err', `环境变量第 ${envBadLine} 行缺少 KEY=`)
+      return
+    }
     if (
       envChanged &&
       pyMode === 'managed' &&
@@ -470,7 +505,14 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
     setNeedsConfirm(false)
   }
 
-  useTabSave(onSaveState, dirty, busy, () => save(false), resetDraft, missingEnvPath)
+  useTabSave(
+    onSaveState,
+    dirty,
+    busy,
+    () => save(false),
+    resetDraft,
+    missingEnvPath || envBadLine !== null,
+  )
 
   const copySwitchLog = async () => {
     if (!switchLog) return
@@ -524,7 +566,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
               <TextInput aria-label="实例名称" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
 
-            <div className="field">
+            <div className="field settings-directory">
               <div className="field-label">
                 <label>实例目录</label>
               </div>
@@ -538,7 +580,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 />
                 <Button
                   type="button"
-                  className="ghost sm"
+                  className="ghost settings-field-action"
                   onClick={() => void openRelocate()}
                   disabled={
                     busy ||
@@ -555,6 +597,7 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                       : '只改登记路径，不移动磁盘文件'
                   }
                 >
+                  <Icon name="link" size={13} />
                   重新定位
                 </Button>
               </div>
@@ -570,7 +613,9 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
             </h3>
             <div className="engine-grid">
               <div className="field">
-                <label>CUDA 版本</label>
+                <div className="field-label">
+                  <label>CUDA 版本</label>
+                </div>
                 <Select
                   ariaLabel="CUDA 版本"
                   value={cudaKey}
@@ -689,7 +734,12 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                   onPick={() => void chooseExistingFolder()}
                   pickTitle="选择已有环境文件夹"
                   actions={
-                    <Button type="button" className="ghost sm" disabled={probing} onClick={() => void detect()}>
+                    <Button
+                      type="button"
+                      className="ghost settings-field-action"
+                      disabled={probing}
+                      onClick={() => void detect()}
+                    >
                       {probing ? '检测中…' : '检测'}
                     </Button>
                   }
@@ -713,6 +763,11 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 placeholder={'每行 KEY=VALUE，例如\nPYTORCH_CUDA_ALLOC_CONF=expandable_segments:True'}
                 onChange={(e) => setEnvText(e.target.value)}
               />
+              {envBadLine !== null && (
+                <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 6 }}>
+                  第 {envBadLine} 行缺少 =
+                </div>
+              )}
             </div>
           </section>
 
@@ -730,9 +785,11 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
 
           <section>
             <h3>镜像覆盖</h3>
-            <div className="grid-2">
-              <div className="field">
-                <label>PyPI 索引</label>
+            <div className="settings-mirror">
+              <div className="field settings-mirror-wide">
+                <div className="field-label">
+                  <label>PyPI 索引</label>
+                </div>
                 <TextInput
                   className="mono"
                   aria-label="PyPI 索引" value={pypi}
@@ -741,7 +798,9 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 />
               </div>
               <div className="field">
-                <label>Git 加速前缀</label>
+                <div className="field-label">
+                  <label>Git 加速前缀</label>
+                </div>
                 <TextInput
                   className="mono"
                   aria-label="Git 加速前缀" value={git}
@@ -749,8 +808,10 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                   onChange={(e) => setGit(e.target.value)}
                 />
               </div>
-              <div className="field">
-                <label>HuggingFace 端点</label>
+              <div className="field settings-mirror-wide">
+                <div className="field-label">
+                  <label>HuggingFace 端点</label>
+                </div>
                 <TextInput
                   className="mono"
                   aria-label="HuggingFace 端点" value={hf}
@@ -759,7 +820,9 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 />
               </div>
               <div className="field">
-                <label>HuggingFace 离线</label>
+                <div className="field-label">
+                  <label>HuggingFace 离线</label>
+                </div>
                 <Select
                   ariaLabel="HuggingFace 离线模式"
                   value={hfOffline}
@@ -918,15 +981,15 @@ export default function InstanceSettings({ inst, plan, onSaved, notify, onSaveSt
                 </Button>
               )}
               {switchLog.running && (
-                <Button
+                <IconTextButton
                   className="ghost stop"
                   onClick={() => void cancelInstall()}
                   disabled={cancelling}
                   title="终止当前安装步骤并清理子进程"
-                >
-                  <Icon name="stop" size={13} />
+                 icon="stop" iconSize={13}>
+                  
                   {cancelling ? '正在取消…' : '取消安装'}
-                </Button>
+                </IconTextButton>
               )}
             </>
           }

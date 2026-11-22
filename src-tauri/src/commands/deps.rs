@@ -1667,10 +1667,14 @@ fn install_one(
 
     // 节点依赖经常声明 torch 系包；如果不动 constraints，uv 会顺手把 torch 换掉。
     let constraints_path = write_torch_constraints(&installed)?;
-    if let Some(path) = &constraints_path {
-        // install.py 里自己调 pip/uv 时也能继承这两个环境变量
-        env.insert("PIP_CONSTRAINT".into(), path.to_string_lossy().to_string());
-        env.insert("UV_CONSTRAINT".into(), path.to_string_lossy().to_string());
+    let constraint_url = constraints_path
+        .as_ref()
+        .map(|p| crate::proc::path_to_file_url(p));
+    if let Some(url) = &constraint_url {
+        // install.py 里自己调 pip/uv 时也能继承这两个环境变量。
+        // pip/uv 在 Windows 上会把带空格的约束路径截成 `D:\Program`，用 file URL。
+        env.insert("PIP_CONSTRAINT".into(), url.clone());
+        env.insert("UV_CONSTRAINT".into(), url.clone());
     }
 
     let req = node.dir.join("requirements.txt");
@@ -1749,12 +1753,9 @@ fn install_one(
                 "--index-url",
                 index,
             ];
-            let constraint_str = constraints_path
-                .as_ref()
-                .map(|p| p.to_string_lossy().to_string());
-            if let Some(path) = &constraint_str {
+            if let Some(url) = &constraint_url {
                 argv.push("--constraint");
-                argv.push(path);
+                argv.push(url);
             }
             let out = proc::run_stream(&uv, &argv, Some(&node.dir), &env, &mut |line| {
                 if !line.trim().is_empty() {
@@ -1794,9 +1795,6 @@ fn install_one(
                 format!("{}：整批安装失败，逐行重试：{detail}", node.name),
             ));
             let python_str = py.python.to_string_lossy().to_string();
-            let constraint_str = constraints_path
-                .as_ref()
-                .map(|p| p.to_string_lossy().to_string());
             for line in &to_install {
                 let args = spec_args(line);
                 let mut last_error = String::new();
@@ -1809,9 +1807,9 @@ fn install_one(
                     }
                     argv.push("--index-url");
                     argv.push(index);
-                    if let Some(path) = &constraint_str {
+                    if let Some(url) = &constraint_url {
                         argv.push("--constraint");
-                        argv.push(path);
+                        argv.push(url);
                     }
                     match proc::run_stream(&uv, &argv, Some(&node.dir), &env, &mut |line| {
                         if !line.trim().is_empty() {

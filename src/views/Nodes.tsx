@@ -1,6 +1,14 @@
 import { TextInput, Checkbox } from '../components/Form'
+import Switch from '../components/Switch'
 import Button from '../components/Button'
-import { useCallback, useEffect, useState } from 'react'
+import IconTextButton from '../components/IconTextButton'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { api, errText } from '../lib/api'
 import type {
   DepsInstallReport,
@@ -13,6 +21,7 @@ import type {
 } from '../types'
 import Icon from '../components/Icon'
 import Modal from '../components/Modal'
+import NodeHeadButton from '../components/NodeHeadButton'
 import Select from '../components/Select'
 import OperationDialog, {
   operationPercent,
@@ -27,15 +36,50 @@ interface Props {
   notify: (kind: 'ok' | 'err', msg: string) => void
   /** 诊断弹窗里点「补依赖」时传进来的目标（null = 全部） */
   installIntent: { names: string[] | null; key: number } | null
-  onDiagnose: () => void
   onChanged?: () => void
   onOpenSnapshots?: () => void
+  /** 安装依赖/节点等长操作期间禁止启动，交给灵动岛隐藏启动按钮。 */
+  onBusyChange?: (busy: boolean) => void
 }
 
 const AUTO_LABEL: Record<string, string> = {
   remind: '提醒我',
   auto: '自动补',
   off: '关闭',
+}
+
+/** git 的 scp/ssh 地址转成能在浏览器里打开的仓库页；本地路径和非 http(s) 不返回。 */
+function repoWebUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const text = raw.trim()
+  if (!text || /^[a-zA-Z]:[\\/]/.test(text)) return null
+
+  let value = text
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) {
+    const scp = text.match(/^(?:[^@/\s]+@)?([^:/\s]+):(.+)$/)
+    if (!scp) return null
+    value = `https://${scp[1]}/${scp[2]}`
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return null
+  }
+  if (parsed.protocol === 'ssh:' || parsed.protocol === 'git:') {
+    parsed.protocol = 'https:'
+    parsed.port = ''
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+
+  parsed.username = ''
+  parsed.password = ''
+  parsed.search = ''
+  parsed.hash = ''
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\.git$/i, '')
+  if (!parsed.pathname) return null
+  return parsed.toString().replace(/\/$/, '')
 }
 
 interface NodeOperation {
@@ -53,7 +97,14 @@ interface NodeOperation {
  * 节点管理：安装 / 启停用 / 更新 / 卸载；以及「依赖」这条线——
  * 检测缺什么、一键补上（自己拷进 custom_nodes 的节点也能补）。
  */
-export default function Nodes({ inst, notify, installIntent, onDiagnose, onChanged, onOpenSnapshots }: Props) {
+export default function Nodes({
+  inst,
+  notify,
+  installIntent,
+  onChanged,
+  onOpenSnapshots,
+  onBusyChange,
+}: Props) {
   const instanceId = inst.id
   const running = inst.state === 'starting' || inst.state === 'running'
 
@@ -63,10 +114,22 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   const [updates, setUpdates] = useState<Record<string, NodeUpdate>>({})
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  // 开关切换很快，但后端同一实例只允许一个操作。排队逐个执行，
+  // 不占用 busy 锁，避免整张卡片所有开关一起变灰。
+  const toggleQueue = useRef<{ name: string; enabled: boolean; previous: boolean }[]>([])
+  const toggleRunning = useRef(false)
   const [nodeOp, setNodeOp] = useState<NodeOperation | null>(null)
   const [nodeOpOpen, setNodeOpOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [listBusy, setListBusy] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  const searchButtonRef = useRef<HTMLButtonElement>(null)
+  const searchBoxRef = useRef<HTMLDivElement>(null)
+  const [revealName, setRevealName] = useState<string | null>(null)
+  const [flashName, setFlashName] = useState<string | null>(null)
 
   const [url, setUrl] = useState('')
   const [withReq, setWithReq] = useState(true)
@@ -83,22 +146,42 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   const [depTab, setDepTab] = useState<OperationTab>('detail')
   const [report, setReport] = useState<DepsInstallReport | null>(null)
   const [depsError, setDepsError] = useState<string | null>(null)
+  const [depsStatusError, setDepsStatusError] = useState<string | null>(null)
   const [depsOpen, setDepsOpen] = useState(false)
 
-  const refreshDeps = useCallback(async (): Promise<DepsReport | null> => {
-    setDepsBusy(true)
-    try {
-      const next = await api.nodesDepsStatus(instanceId)
-      setDeps(next)
-      return next
-    } catch {
-      // 检测失败不该盖住节点列表本身（比如没有 venv）
-      setDeps(null)
-      return null
-    } finally {
-      setDepsBusy(false)
-    }
-  }, [instanceId])
+  useEffect(() => {
+    onBusyChange?.(installing || busy !== null)
+  }, [installing, busy, onBusyChange])
+
+  useEffect(() => {
+    // 实例运行中只能 clone 节点；勾选装依赖会改正在使用的 venv。
+    if (running) setWithReq(false)
+  }, [running])
+
+  useEffect(() => {
+    return () => onBusyChange?.(false)
+  }, [onBusyChange])
+
+  const refreshDeps = useCallback(
+    async (surfaceError = false): Promise<DepsReport | null> => {
+      setDepsBusy(true)
+      try {
+        const next = await api.nodesDepsStatus(instanceId)
+        setDeps(next)
+        setDepsStatusError(null)
+        return next
+      } catch (e) {
+        // 检测失败不该盖住节点列表本身（比如没有 venv）；但用户主动点「补依赖」
+        // 时必须把失败显示出来，否则弹窗会永远停在“正在读取依赖状态…”。
+        setDeps(null)
+        if (surfaceError) setDepsStatusError(errText(e))
+        return null
+      } finally {
+        setDepsBusy(false)
+      }
+    },
+    [instanceId],
+  )
 
   /** 检查 git 节点在远端有没有新提交：只有「有新版本」才允许点更新 */
   const refreshUpdates = useCallback(
@@ -144,15 +227,18 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   const reloadAll = useCallback(
     async (checkNames?: string[], checkUpdates = true) => {
       let list: NodeInfo[] = []
+      setListBusy(true)
       try {
         list = await api.nodesList(instanceId)
         setNodes(list)
         setError(null)
       } catch (e) {
+        // 刷新失败时保留上一份节点列表：切禁用后目录短暂被占用或扫描失败，
+        // 不该把整张节点卡片清空；错误放在卡片顶部提示即可。
         setError(errText(e))
-        setNodes([])
       } finally {
         setLoading(false)
+        setListBusy(false)
       }
       await Promise.all([
         refreshDeps(),
@@ -165,6 +251,55 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   useEffect(() => {
     void reloadAll()
   }, [reloadAll])
+
+  useEffect(() => {
+    if (!searchOpen) return
+    const frame = requestAnimationFrame(() => searchRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [searchOpen])
+
+  useEffect(() => {
+    if (!searchOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      // 点搜索框和搜索按钮本身不算“点外面”；节点列表里的按钮也要能正常执行。
+      if (searchBoxRef.current?.contains(target) || searchButtonRef.current?.contains(target)) return
+      if (target.closest('.ov-node-scroll')) return
+      setSearchOpen(false)
+      setSearch('')
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [searchOpen])
+
+  // 搜索里点中某个节点后，关闭搜索并把它滚到可视区域中间。
+  useEffect(() => {
+    if (!revealName || searchOpen) return
+    let inner = 0
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        const row = [...document.querySelectorAll<HTMLElement>('.node-row')].find(
+          (el) => el.dataset.nodeName === revealName,
+        )
+        if (row) {
+          row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          setFlashName(revealName)
+        }
+        setRevealName(null)
+      })
+    })
+    return () => {
+      cancelAnimationFrame(outer)
+      cancelAnimationFrame(inner)
+    }
+  }, [revealName, searchOpen])
+
+  useEffect(() => {
+    if (!flashName) return
+    const timer = window.setTimeout(() => setFlashName(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [flashName])
 
   useEffect(() => {
     if (installIntent) void openInstall(installIntent.names)
@@ -207,6 +342,11 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
 
   const install = async () => {
     if (!url.trim()) return
+    if (running && withReq) {
+      notify('err', '实例运行中不能装依赖：取消勾选「装依赖」后再安装')
+      return
+    }
+    const withRequirements = withReq && !running
     setBusy('install')
     setNodeOpOpen(false)
     setNodeOp({
@@ -220,7 +360,13 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
       error: null,
     })
     try {
-      const node = await api.nodesInstall(instanceId, url.trim(), null, withReq, pushNodeEvent)
+      const node = await api.nodesInstall(
+        instanceId,
+        url.trim(),
+        null,
+        withRequirements,
+        pushNodeEvent,
+      )
       setNodeOp((prev) =>
         prev ? { ...prev, target: node.name, state: 'ok', phase: '安装完成' } : prev,
       )
@@ -240,17 +386,35 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
     }
   }
 
-  const toggle = async (node: NodeInfo) => {
-    setBusy(node.name)
+  const drainToggleQueue = useCallback(async () => {
+    if (toggleRunning.current) return
+    toggleRunning.current = true
     try {
-      await api.nodesToggle(instanceId, node.name, !node.enabled)
-      notify('ok', `${node.name} 已${node.enabled ? '禁用' : '启用'}（重启 ComfyUI 生效）`)
-      await reloadAll(undefined, false)
-    } catch (e) {
-      notify('err', errText(e))
+      while (toggleQueue.current.length > 0) {
+        const job = toggleQueue.current.shift()!
+        try {
+          await api.nodesToggle(instanceId, job.name, job.enabled)
+          notify('ok', `${job.name} 已${job.enabled ? '启用' : '禁用'}（重启 ComfyUI 生效）`)
+        } catch (e) {
+          setNodes((prev) =>
+            prev.map((n) => (n.name === job.name ? { ...n, enabled: job.previous } : n)),
+          )
+          notify('err', errText(e))
+        }
+      }
     } finally {
-      setBusy(null)
+      toggleRunning.current = false
     }
+  }, [instanceId, notify])
+
+  const toggle = (node: NodeInfo) => {
+    const nextEnabled = !node.enabled
+    // 先本地切状态，磁盘改名期间不会闪回旧值；失败再回滚。
+    setNodes((prev) =>
+      prev.map((n) => (n.name === node.name ? { ...n, enabled: nextEnabled } : n)),
+    )
+    toggleQueue.current.push({ name: node.name, enabled: nextEnabled, previous: node.enabled })
+    void drainToggleQueue()
   }
 
   const applyFreshUpdate = (fresh: NodeUpdate) => {
@@ -266,6 +430,10 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   }
 
   const update = async (node: NodeInfo) => {
+    if (running) {
+      notify('err', '实例正在运行：先停止实例再更新节点')
+      return
+    }
     setBusy(node.name)
     setNodeOpOpen(false)
     setNodeOp({
@@ -296,6 +464,10 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   }
 
   const updateAll = async () => {
+    if (running) {
+      notify('err', '实例正在运行：先停止实例再更新节点')
+      return
+    }
     const targets = nodes.filter(
       (n) => n.enabled && n.kind === 'git' && (updates[n.name]?.behind ?? 0) > 0,
     )
@@ -383,16 +555,69 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
     }
   }
 
+  const openNodeFolder = async (node: NodeInfo) => {
+    try {
+      await api.openPath(node.path)
+    } catch (e) {
+      notify('err', errText(e))
+    }
+  }
+
+  const openRepo = async (node: NodeInfo) => {
+    const url = repoWebUrl(node.url)
+    if (!url) return
+    try {
+      await api.openUrl(url)
+    } catch (e) {
+      notify('err', errText(e))
+    }
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setSearch('')
+    searchButtonRef.current?.focus()
+  }
+
+  const revealNode = (name: string) => {
+    setRevealName(name)
+    setSearchOpen(false)
+    setSearch('')
+    searchButtonRef.current?.focus({ preventScroll: true })
+  }
+
+  const onNodeRowClick = (event: ReactMouseEvent<HTMLDivElement>, name: string) => {
+    if (!searchOpen) return
+    const target = event.target
+    if (
+      target instanceof Element &&
+      target.closest('button, a, input, select, label, [role="switch"]')
+    ) {
+      return
+    }
+    revealNode(name)
+  }
+
+  const toggleSearch = () => {
+    if (searchOpen) {
+      closeSearch()
+      return
+    }
+    setAddOpen(false)
+    setSearchOpen(true)
+  }
+
   const openInstall = async (names: string[] | null) => {
     setDepsOpen(false)
     setReport(null)
     setDepsError(null)
+    setDepsStatusError(null)
     setDepEvents([])
     setDepPhase('准备中')
     setDepTab('detail')
     setRunInstallPy(true)
     setConfirm({ names })
-    if (!deps) await refreshDeps()
+    if (!deps) await refreshDeps(true)
   }
 
   const closeConfirm = () => {
@@ -400,6 +625,7 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
     setConfirm(null)
     setReport(null)
     setDepsError(null)
+    setDepsStatusError(null)
   }
 
   const installDeps = async (stopFirst: boolean) => {
@@ -462,6 +688,25 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   ).length
   const depsOf = (nodeName: string): NodeDeps | undefined => deps?.nodes.find((d) => d.name === nodeName)
 
+  const query = search.trim().toLowerCase()
+  const visibleNodes = query
+    ? nodes.filter((n) => {
+        const hay = `${n.name} ${n.url ?? ''} ${n.kind === 'git' ? 'git' : '手动'}`.toLowerCase()
+        return hay.includes(query)
+      })
+    : nodes
+
+  const refreshing = listBusy || depsBusy || checking
+  const refreshStatus = listBusy
+    ? '读取节点'
+    : depsBusy && checking
+      ? '检查依赖与更新'
+      : depsBusy
+        ? '检查依赖'
+        : checking
+          ? '检查更新'
+          : null
+
   /** 弹层里要展示的节点：指定名字就按名字，否则只列「有事要做」的 */
   const targets: NodeDeps[] = confirm
     ? confirm.names
@@ -512,13 +757,19 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
   return (
     <>
       <section className="panel ov-card ov-nodes" aria-labelledby="ov-nodes-title">
-        <div className="panel-head ov-nodes-head">
+        <div className={`panel-head ov-nodes-head${searchOpen ? ' is-searching' : ''}`}>
           <div className="ov-nodes-head-main">
             <h2 id="ov-nodes-title">节点</h2>
             {nodes.length > 0 && (
-              <span className="badge ok">
+              <span className={`badge ${refreshing ? 'busy' : 'ok'}`} aria-live="polite">
                 <span className="dot" />
-                {enabled === nodes.length ? `${nodes.length} 启用` : `${enabled} / ${nodes.length} 启用`}
+                <span className="badge-text">
+                  {refreshing
+                    ? `${nodes.length} 检查更新`
+                    : enabled === nodes.length
+                      ? `${nodes.length} 启用`
+                      : `${enabled} / ${nodes.length} 启用`}
+                </span>
               </span>
             )}
             <div className="inline-field ov-nodes-startup" title="启动 ComfyUI 时怎么处理节点依赖">
@@ -536,70 +787,94 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               />
             </div>
           </div>
-          <div className="ov-nodes-head-actions">
-            {updatableCount > 0 && (
-              <Button
-                className="ghost sm"
-                onClick={() => void updateAll()}
-                disabled={loading || busy !== null || installing || depsBusy || checking}
-                aria-label={`更新 ${updatableCount} 个节点`}
-                title={
-                  busy === 'all'
-                    ? '正在按顺序更新节点…'
-                    : installing
-                      ? '先完成当前依赖处理'
-                      : checking
-                        ? '正在检查远端最新版本…'
-                        : depsBusy
-                          ? '正在检测依赖…'
-                          : `按顺序更新 ${updatableCount} 个有远端新提交的节点`
-                }
-              >
-                <Icon name="refresh" size={13} />
-                <span className="ov-bulk-label">更新 ({updatableCount})</span>
-              </Button>
-            )}
-            {deps && deps.pendingNodes > 0 && (
-              <Button
-                className="ghost sm"
-                onClick={() => void openInstall(null)}
-                disabled={installing || depsBusy}
-                aria-label={`补全依赖，${deps.pendingNodes} 个节点`}
-                title={`补全 ${deps.pendingNodes} 个节点的缺失依赖`}
-              >
-                <Icon name="download" size={13} />
-                <span className="ov-bulk-label">补全依赖</span>
-              </Button>
-            )}
-          </div>
+          {!searchOpen && (
+            <div className="ov-nodes-head-actions">
+              {updatableCount > 0 && (
+                <NodeHeadButton
+                  icon="refresh"
+                  onClick={() => void updateAll()}
+                  disabled={loading || busy !== null || installing || depsBusy || checking || running}
+                  aria-label={`更新 ${updatableCount} 个节点`}
+                  title={
+                    running
+                      ? '先停止实例'
+                      : busy === 'all'
+                        ? '正在按顺序更新节点…'
+                        : installing
+                          ? '先完成当前依赖处理'
+                          : checking
+                            ? '正在检查远端最新版本…'
+                            : depsBusy
+                              ? '正在检测依赖…'
+                              : `按顺序更新 ${updatableCount} 个有远端新提交的节点`
+                  }
+                >
+                  更新 ({updatableCount})
+                </NodeHeadButton>
+              )}
+              {deps && deps.pendingNodes > 0 && (
+                <NodeHeadButton
+                  icon="download"
+                  onClick={() => void openInstall(null)}
+                  disabled={installing || depsBusy}
+                  aria-label={`补全依赖，${deps.pendingNodes} 个节点`}
+                  title={`补全 ${deps.pendingNodes} 个节点的缺失依赖`}
+                >
+                  补全依赖
+                </NodeHeadButton>
+              )}
+            </div>
+          )}
           <div className="ov-nodes-head-icons">
+            {!searchOpen && (
+              <>
+                <Button
+                  className={`icon-btn${addOpen ? ' is-on' : ''}`}
+                  onClick={() => setAddOpen((v) => !v)}
+                  disabled={installing}
+                  title={addOpen ? '收起安装' : '安装节点'}
+                  aria-label={addOpen ? '收起安装' : '安装节点'}
+                  aria-expanded={addOpen}
+                >
+                  <Icon name={addOpen ? 'close' : 'plus'} size={14} />
+                </Button>
+                <Button
+                  className={`icon-btn${refreshing ? ' is-busy' : ''}`}
+                  onClick={() => void reloadAll()}
+                  disabled={loading || refreshing || installing}
+                  title={refreshStatus ?? '刷新节点列表和依赖状态'}
+                  aria-label="刷新节点"
+                >
+                  <Icon name="refresh" size={14} />
+                </Button>
+              </>
+            )}
+            <div ref={searchBoxRef} className={`ov-nodes-search${searchOpen ? ' is-open' : ''}`}>
+              <TextInput
+                ref={searchRef}
+                className="node-search-input"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') closeSearch()
+                }}
+                placeholder="搜索节点"
+                aria-label="搜索节点"
+                aria-hidden={!searchOpen}
+                tabIndex={searchOpen ? 0 : -1}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
             <Button
-              className={`icon-btn${addOpen ? ' is-on' : ''}`}
-              onClick={() => setAddOpen((v) => !v)}
-              disabled={installing}
-              title={addOpen ? '收起安装' : '安装节点'}
-              aria-label={addOpen ? '收起安装' : '安装节点'}
-              aria-expanded={addOpen}
+              ref={searchButtonRef}
+              className={`icon-btn node-search-toggle${searchOpen ? ' is-on' : ''}`}
+              onClick={toggleSearch}
+              title={searchOpen ? '关闭搜索' : '搜索节点'}
+              aria-label={searchOpen ? '关闭搜索' : '搜索节点'}
+              aria-expanded={searchOpen}
             >
-              <Icon name={addOpen ? 'close' : 'plus'} size={14} />
-            </Button>
-            <Button
-              className={`icon-btn${depsBusy || checking ? ' is-busy' : ''}`}
-              onClick={() => void reloadAll()}
-              disabled={loading || depsBusy || installing || checking}
-              title="刷新节点列表和依赖状态"
-              aria-label="刷新节点"
-            >
-              <Icon name="refresh" size={14} />
-            </Button>
-            <Button
-              className="icon-btn"
-              onClick={onDiagnose}
-              disabled={installing}
-              title="检查节点依赖与环境问题"
-              aria-label="诊断节点"
-            >
-              <Icon name="diagnostics" size={14} />
+              <Icon name={searchOpen ? 'close' : 'search'} size={14} />
             </Button>
           </div>
         </div>
@@ -615,17 +890,22 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
               />
             </label>
             <label className="check">
-              <Checkbox type="checkbox" checked={withReq} onChange={(e) => setWithReq(e.target.checked)} />
+              <Checkbox
+                type="checkbox"
+                checked={withReq && !running}
+                disabled={running}
+                onChange={(e) => setWithReq(e.target.checked)}
+              />
               装依赖
             </label>
-            <Button
+            <IconTextButton
               className="primary"
               onClick={() => void install()}
-              disabled={!url.trim() || busy !== null}
-            >
-              <Icon name="plus" size={13} />
+              disabled={!url.trim() || busy !== null || (running && withReq)}
+             icon="plus" iconSize={13}>
+              
               {busy === 'install' ? '安装中…' : '安装'}
-            </Button>
+            </IconTextButton>
           </div>
         )}
 
@@ -668,17 +948,33 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                   </div>
                 </div>
               )}
+              {visibleNodes.length === 0 ? (
+                <div className="empty">
+                  <strong>没有匹配的节点</strong>
+                </div>
+              ) : (
               <div className="node-list">
-                {nodes.map((n) => {
+                {visibleNodes.map((n) => {
                   const d = depsOf(n.name)
                   const pending = d?.pending.length ?? 0
                   const u = updates[n.name]
-                  const updateLocked = busy !== null || installing || depsBusy
+                  const repoUrl = repoWebUrl(n.url)
+                  const updateLocked = busy !== null || installing || depsBusy || running
                   const depsLocked = busy !== null || installing || depsBusy
                   return (
-                    <div className={`node-row${n.enabled ? '' : ' off'}`} key={n.name}>
+                    <div
+                      className={`node-row${n.enabled ? '' : ' off'}${flashName === n.name ? ' is-jump' : ''}`}
+                      key={n.name}
+                      data-node-name={n.name}
+                      onClick={(event) => onNodeRowClick(event, n.name)}
+                    >
                       <div className="node-title">
-                        <span className={`node-state${n.enabled ? ' is-on' : ''}`} aria-hidden="true" />
+                        <span
+                          className={`node-kind${n.kind === 'git' ? ' is-git' : ''}`}
+                          title={n.kind === 'git' ? 'Git 安装，可检查更新' : '手动安装，不能更新'}
+                        >
+                          {n.kind === 'git' ? 'Git' : '手动'}
+                        </span>
                         <span
                           className="node-name mono"
                           title={[
@@ -692,7 +988,6 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                         >
                           {n.name}
                         </span>
-                        {n.kind === 'manual' && <span className="badge ghost">手动</span>}
                         {u && !u.error && u.behind > 0 && (
                           <Button
                             type="button"
@@ -701,11 +996,13 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             title={
                               !n.enabled
                                 ? '先启用节点'
-                                : updateLocked
-                                  ? '等待当前操作完成'
-                                  : u.local && u.remote
-                                    ? `远端有新提交：${u.local.slice(0, 7)} → ${u.remote.slice(0, 7)}`
-                                    : '远端有新提交'
+                                : running
+                                  ? '先停止实例'
+                                  : updateLocked
+                                    ? '等待当前操作完成'
+                                    : u.local && u.remote
+                                      ? `远端有新提交：${u.local.slice(0, 7)} → ${u.remote.slice(0, 7)}`
+                                      : '远端有新提交'
                             }
                             aria-label={`更新 ${n.name}`}
                             onClick={() => void update(n)}
@@ -721,7 +1018,9 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             title={
                               !n.enabled
                                 ? '先启用节点'
-                                : `检查更新失败：${u.error}；仍可手动更新`
+                                : running
+                                  ? '先停止实例'
+                                  : `检查更新失败：${u.error}；仍可手动更新`
                             }
                             aria-label={`更新 ${n.name}`}
                             onClick={() => void update(n)}
@@ -765,6 +1064,26 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                         ) : null}
                       </div>
                       <div className="node-actions">
+                        {repoUrl && (
+                          <Button
+                            type="button"
+                            className="icon-btn node-repo"
+                            onClick={() => void openRepo(n)}
+                            title={n.url ?? '打开 Git 仓库'}
+                            aria-label={`打开 ${n.name} 的 Git 仓库`}
+                          >
+                            <Icon name="link" size={14} />
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          className="icon-btn node-folder"
+                          onClick={() => void openNodeFolder(n)}
+                          title="打开节点文件夹"
+                          aria-label={`打开 ${n.name} 的文件夹`}
+                        >
+                          <Icon name="folder" size={14} />
+                        </Button>
                         {confirmDel === n.name ? (
                           <>
                             <Button
@@ -790,23 +1109,20 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                             <Icon name="trash" size={14} />
                           </Button>
                         )}
-                        <Button
-                          type="button"
-                          className={`node-switch${n.enabled ? ' is-on' : ''}`}
-                          role="switch"
-                          aria-checked={n.enabled}
-                          aria-label={n.enabled ? `禁用 ${n.name}` : `启用 ${n.name}`}
+                        <Switch
+                          className="node-enabled-switch"
+                          checked={n.enabled}
+                          ariaLabel={n.enabled ? `禁用 ${n.name}` : `启用 ${n.name}`}
                           title={n.enabled ? '禁用节点' : '启用节点'}
                           disabled={busy !== null}
-                          onClick={() => void toggle(n)}
-                        >
-                          <span aria-hidden="true" />
-                        </Button>
+                          onChange={() => void toggle(n)}
+                        />
                       </div>
                     </div>
                   )
                 })}
               </div>
+              )}
             </>
           )}
         </div>
@@ -863,16 +1179,16 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
           }}
           footer={
             report?.snapshotId && onOpenSnapshots ? (
-              <Button
+              <IconTextButton
                 className="ghost"
                 onClick={() => {
                   closeConfirm()
                   onOpenSnapshots()
                 }}
-              >
-                <Icon name="clock" size={13} />
+               icon="clock" iconSize={13}>
+                
                 去快照页
-              </Button>
+              </IconTextButton>
             ) : null
           }
         >
@@ -936,7 +1252,21 @@ export default function Nodes({ inst, notify, installIntent, onDiagnose, onChang
                     </div>
                   )}
 
-                  {!deps && <div className="empty">正在读取依赖状态…</div>}
+                  {!deps && depsStatusError && (
+                    <div className="banner">
+                      <div>
+                        <strong>读取依赖状态失败：</strong>
+                        {depsStatusError}
+                      </div>
+                      <Button className="ghost sm" onClick={() => void refreshDeps(true)}>
+                        重试
+                      </Button>
+                    </div>
+                  )}
+
+                  {!deps && !depsStatusError && (
+                    <div className="empty">正在读取依赖状态…</div>
+                  )}
 
                   {deps && targets.length === 0 && (
                     <div className="banner ok">

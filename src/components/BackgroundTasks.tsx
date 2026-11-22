@@ -12,6 +12,7 @@ import type { OperationState } from './OperationDialog'
 
 export type TaskKind =
   | 'generate'
+  | 'download'
   | 'start'
   | 'install'
   | 'wheel'

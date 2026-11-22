@@ -25,7 +25,6 @@
 :root.theme-light .win-btn:active:not(:disabled) {
   background: var(--hover-3);
 }
-:root.theme-light .flag-row:hover,
 :root.theme-light .share-row:hover,
 :root.theme-light .node-row:hover,
 :root.theme-light .tag-row:hover {
@@ -101,7 +100,45 @@
   textarea
 ) {
   background: var(--card);
+  color: var(--card-ink);
   box-shadow: inset 0 0 0 0 var(--blue);
+}
+:root.theme-light :is(
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'],
+  select,
+  textarea
+):not(:disabled)::placeholder {
+  color: var(--card-ink-4);
+}
+:root.theme-light :is(
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='number'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'],
+  select,
+  textarea
+):disabled {
+  background: var(--sunken);
+  color: var(--theme-ink-3);
 }
 :root.theme-light :is(
   input:not([type]),
@@ -147,12 +184,13 @@
 :root.theme-light .select-trigger,
 :root.theme-light .inline-field .select-trigger {
   background: var(--card);
+  color: var(--card-ink);
   box-shadow: inset 0 0 0 0 var(--blue);
 }
 :root.theme-light .select-trigger:hover:not(:disabled):not([aria-expanded='true']) {
   background: var(--hover-fill);
   border-color: var(--line-strong);
-  color: var(--theme-ink);
+  color: var(--card-ink);
 }
 /* 聚焦 / 展开：不再套外圈，也不改外框尺寸；边框 + 内描边视觉上是 2px。 */
 :root.theme-light .select-trigger[aria-expanded='true'],
@@ -163,8 +201,8 @@
   outline: none;
 }
 :root.theme-light .select-trigger:disabled {
-  background: var(--card);
-  color: var(--ink-4);
+  background: var(--sunken);
+  color: var(--theme-ink-4);
 }
 /* 分段选择：按截图单独处理成无边框的软底控件；轨道、选中、悬浮都不画边。 */
 :root.theme-light .seg {
@@ -196,13 +234,11 @@
 }
 :root.theme-light .select-menu {
   /* 浮层必须压住下面的字段；用卡片底色但保持实色，只让 trigger / 输入框跟卡片 alpha。 */
-  background: var(--surface);
+  background: var(--card-color);
   box-shadow: var(--shadow-2);
 }
-/* 操作日志的展开详情是“日志正文”，不是终端本身；亮色下用浅底深字，别把终端黑底搬过来。 */
+/* 操作日志的展开详情跟随外层卡片，不单独铺底色。 */
 :root.theme-light .act-detail {
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  border-color: var(--line-2);
   color: var(--ink-2);
 }
 :root.theme-light .info-tip-pop {
@@ -210,28 +246,26 @@
   box-shadow: var(--shadow-2);
 }
 :root.theme-light button.primary:disabled {
-  background: var(--sunken-2);
+  background: var(--card-sunken);
 }
 :root.theme-light .metric-track {
   background: var(--sunken);
   box-shadow: inset 0 1px 2px rgba(20, 26, 40, 0.12);
 }
 :root.theme-light .bottombar {
-  background: color-mix(in srgb, var(--surface) 84%, transparent);
-  border-top-color: var(--line);
-  backdrop-filter: blur(14px) saturate(160%);
+  background: var(--bar);
 }
 :root.theme-light .bottombar .icon-btn:hover:not(:disabled) {
   background: var(--hover-bg);
   border-color: var(--hover-bg);
   color: var(--blue);
 }
-:root.theme-light .bottombar .primary:disabled,
-:root.theme-light .bottombar .ghost:disabled,
-:root.theme-light .bottombar .danger:disabled {
+:root.theme-light .bottombar button.primary:disabled,
+:root.theme-light .bottombar button.ghost:disabled,
+:root.theme-light .bottombar button.danger:disabled {
   background: var(--hover-1);
   border-color: var(--line-2);
-  color: var(--ink-4);
+  color: var(--theme-ink-4);
 }
 :root.theme-light .modal {
   background: var(--modal);
@@ -264,6 +298,16 @@
   background: var(--hover-2);
   color: var(--ink-3);
 }
+/* 控制台页签是深色终端，顶栏和搜索条也必须留在深色里；
+   不能沿用亮色卡片的 --card / --card-surface-2。 */
+:root.theme-light .console-wrap .console-bar {
+  background: var(--term);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+:root.theme-light .console-wrap .console-search {
+  background: var(--term-2);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
 /* 只有弹窗里的控制台换成亮底；概览和控制台页签始终是深色终端，
    那里的日志颜色在 deps.css 里用固定的终端色，不跟主题翻转。 */
 :root.theme-light .modal pre.install-log.log-colored .log-line.dim { color: var(--ink-3); }
@@ -286,4 +330,8 @@
   background: var(--sunken);
   border-color: var(--line-2);
   color: var(--ink-2);
+}
+:root.theme-light .launch-command {
+  background: var(--card);
+  color: var(--ink-3);
 }

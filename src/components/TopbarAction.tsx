@@ -1,5 +1,5 @@
-import Button from './Button'
-import Icon, { type IconName } from './Icon'
+import IconTextButton from './IconTextButton'
+import type { IconName } from './Icon'
 
 /**
  * 顶栏右侧的带文字操作：图标只做辅助，文字把“同步 / 设置”说清楚。
@@ -17,9 +17,16 @@ export default function TopbarAction({
   onClick: () => void
 }) {
   return (
-    <Button type="button" className="topbar-action" onClick={onClick} title={title} aria-label={title}>
-      <Icon name={icon} size={14} />
+    <IconTextButton
+      type="button"
+      className="topbar-action"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      icon={icon}
+      iconSize={14}
+    >
       <span>{label}</span>
-    </Button>
+    </IconTextButton>
   )
 }

@@ -12,9 +12,7 @@
   --bg-top: #1a2036;
   --bg-mid: #111525;
   --bg-bottom: #020203;
-  --bg-glow-left: rgba(64, 96, 255, 0.28); /* 固定底色光，不随主题色 */
-  --bg-glow-purple: rgba(139, 92, 246, 0.2);
-  --bg-glow-coral: rgba(255, 106, 77, 0.13);
+
   --accent-select: rgba(43, 99, 255, 0.42);
   --selection-ink: #ffffff;
   --surface: #121725;
@@ -25,6 +23,19 @@
   --card: rgba(22, 27, 42, 0.88);
   --card-hover: rgba(26, 32, 48, 0.88);
   --card-press: rgba(22, 27, 42, 0.88);
+  /* 卡片内部的面板/输入区不能再用固定的深蓝或纯黑，否则卡片调成透明后
+     会露出一块块不跟随的实色。用叠在卡片色上的半透明黑，颜色和 alpha 都跟着卡片走。 */
+  --card-surface: linear-gradient(rgba(0, 0, 0, 0.09), rgba(0, 0, 0, 0.09)), var(--card);
+  --card-surface-2: linear-gradient(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.05)), var(--card);
+  --card-sunken: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.18)), var(--card);
+  --bar-color: #090b14;
+  --bar-alpha: 0.36;
+  --bar: rgba(9, 11, 20, 0.36);
+  --bar-ink: #f5f6fb;
+  --bar-ink-2: #c9cedd;
+  --bar-ink-3: #b6bed0;
+  --bar-ink-4: #9da6ba;
+  --bar-blue-ink: #7f9dff;
   --card-ink: #f5f6fb;
   --card-blue-ink: #7f9dff;
   --card-coral-ink: #ff8a9a;
@@ -112,8 +123,8 @@
   --r-3xl: 28px;
   --r-pill: 999px;
 
-  --font-sans: 'Inter', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
-  --font-mono: 'SF Mono', 'Cascadia Mono', 'Consolas', 'Microsoft YaHei UI', monospace;
+  --font-sans: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', 'Microsoft YaHei UI', monospace;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -121,13 +132,10 @@
 }
 
 /* 亮色不是把暗色调亮，而是换一套语义 token：
-   深色文字、浅色表面、低透明度的冷色环境光。 */
+   深色文字、浅色表面。 */
 :root.theme-light {
   color-scheme: light;
   --bg: #f3f6fc;
-  --bg-glow-left: rgba(64, 96, 255, 0.13);
-  --bg-glow-purple: rgba(139, 92, 246, 0.08);
-  --bg-glow-coral: rgba(255, 106, 77, 0.06);
   --surface: #ffffff;
   --surface-2: #f5f8fe;
   --modal: #ffffff;
@@ -199,6 +207,44 @@
   --silver: var(--card-ink);
   --silver-2: var(--card-ink-2);
   --silver-3: var(--card-ink-3);
+  /* 卡片容器自己也要落到卡片文字色，否则会从页面继承到相反的颜色。 */
+  color: var(--ink);
+}
+
+/* 顶栏和主内容区直接铺在页面渐变上，文字/图标跟页面底色走。 */
+.view {
+  --ink: var(--page-ink, var(--theme-ink));
+  --ink-2: var(--page-ink-2, var(--theme-ink-2));
+  --ink-3: var(--page-ink-3, var(--theme-ink-3));
+  --ink-4: var(--page-ink-4, var(--theme-ink-4));
+  --silver: var(--page-ink, var(--theme-ink));
+  --silver-2: var(--page-ink-2, var(--theme-ink-2));
+  --silver-3: var(--page-ink-3, var(--theme-ink-3));
+  --blue-ink: var(--page-blue-ink, #8fb0ff);
+  color: var(--ink);
+}
+.topbar {
+  --ink: var(--topbar-ink, var(--theme-ink));
+  --ink-2: var(--topbar-ink-2, var(--theme-ink-2));
+  --ink-3: var(--topbar-ink-3, var(--theme-ink-3));
+  --ink-4: var(--topbar-ink-4, var(--theme-ink-4));
+  --silver: var(--topbar-ink, var(--theme-ink));
+  --silver-2: var(--topbar-ink-2, var(--theme-ink-2));
+  --silver-3: var(--topbar-ink-3, var(--theme-ink-3));
+  --blue-ink: var(--topbar-blue-ink, #8fb0ff);
+  color: var(--ink);
+}
+/* 页签贴在页面顶部，跟顶栏走，不跟中间内容区的 ink。 */
+.tabs-bar {
+  --ink: var(--topbar-ink, var(--theme-ink));
+  --ink-2: var(--topbar-ink-2, var(--theme-ink-2));
+  --ink-3: var(--topbar-ink-3, var(--theme-ink-3));
+  --ink-4: var(--topbar-ink-4, var(--theme-ink-4));
+  --silver: var(--topbar-ink, var(--theme-ink));
+  --silver-2: var(--topbar-ink-2, var(--theme-ink-2));
+  --silver-3: var(--topbar-ink-3, var(--theme-ink-3));
+  --blue-ink: var(--topbar-blue-ink, #8fb0ff);
+  color: var(--ink);
 }
 
 .inst-card .badge.ok,
@@ -211,10 +257,12 @@
 .panel .badge.err,
 .sync-panel .badge.err { color: var(--card-red); }
 
-/* 控件有自己的主题底色（sunken/hover），文字不能跟着卡片走。 */
+/* 输入框/下拉有自己的主题底色（surface/sunken），文字不能跟着卡片走；
+   页签和分段控件多数是透明或卡片底，继续用卡片文字色，避免同一张卡里
+   一半文字跟卡片变黑/白、一半固定成主题色。 */
 .inst-card :is(input, select, textarea, .select-trigger),
-.panel :is(input, select, textarea, .select-trigger, .tab, .seg button),
-.sync-panel :is(input, select, textarea, .select-trigger, .tab, .seg button) {
+.panel :is(input, select, textarea, .select-trigger),
+.sync-panel :is(input, select, textarea, .select-trigger) {
   --ink: var(--theme-ink);
   --ink-2: var(--theme-ink-2);
   --ink-3: var(--theme-ink-3);
@@ -224,16 +272,24 @@
   --silver-3: var(--theme-silver-3);
 }
 
+/* 弹窗有自己的实色底（modal token），不跟随页面渐变。 */
+.modal {
+  --ink: var(--theme-ink);
+  --ink-2: var(--theme-ink-2);
+  --ink-3: var(--theme-ink-3);
+  --ink-4: var(--theme-ink-4);
+  --silver: var(--theme-silver);
+  --silver-2: var(--theme-silver-2);
+  --silver-3: var(--theme-silver-3);
+  color: var(--ink);
+}
+
 * { box-sizing: border-box; }
 
 html, body, #root { height: 100%; margin: 0; }
 
 body {
-  background:
-    radial-gradient(1100px 700px at 8% -10%, var(--bg-glow-left), transparent 62%),
-    radial-gradient(900px 620px at 98% 0%, var(--bg-glow-purple), transparent 60%),
-    radial-gradient(1000px 700px at 88% 112%, var(--bg-glow-coral), transparent 62%),
-    linear-gradient(155deg, var(--bg-top) 0%, var(--bg-mid) 44%, var(--bg-bottom) 100%);
+  background: linear-gradient(155deg, var(--bg-top) 0%, var(--bg-mid) 44%, var(--bg-bottom) 100%);
   background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font-sans);
@@ -245,16 +301,50 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 极细颗粒：给纯黑一点可触摸的表面，不参与布局 */
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 2147483000;
-  pointer-events: none;
-  opacity: 0.035;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
+/* 界面本体默认不可选：按钮、标题、标签和卡片框架都不该被拖蓝。
+   只有下面明确列出的内容区允许选中，避免新组件默认把整页变成可选文本。 */
+html, body, #root {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+select,
+option,
+[contenteditable='true'],
+.xterm,
+.xterm *,
+pre,
+code,
+.log-view,
+.cdock-log,
+.install-log,
+.op-run-output,
+.error-detail,
+.act-detail,
+.path,
+.snap-diff,
+.sync-log,
+.sync-diff-grid,
+.sync-diff-list,
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button,
+[role='button'],
+[role='tab'],
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.snap-diff-title {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 ::selection { background: var(--accent-select); color: var(--selection-ink); }

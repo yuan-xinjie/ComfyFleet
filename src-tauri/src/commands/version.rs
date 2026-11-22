@@ -120,7 +120,7 @@ pub fn comfy_dir(root: &str) -> PathBuf {
 /// 开发版跟随的分支。ComfyUI 的默认分支就是 master（不是 main）。
 pub const DEV_BRANCH: &str = "master";
 
-fn git_exe(app: &AppHandle, state: &AppState) -> Result<PathBuf, AppError> {
+pub(crate) fn git_exe(app: &AppHandle, state: &AppState) -> Result<PathBuf, AppError> {
     let settings = state.settings.lock().clone();
     let info = crate::git::resolve(app, &settings)?;
     Ok(PathBuf::from(info.path))
@@ -156,6 +156,42 @@ pub fn read_version(git: &Path, dir: &Path, channel: &str) -> Result<VersionInfo
         channel: channel.to_string(),
         remote,
     })
+}
+
+/// 用 Git 的真实状态纠正 `instance.json` 里的 ComfyUI 版本缓存。
+///
+/// 版本页一直读 Git，概览页却读缓存；在外部 `git pull/checkout` 过目录、
+/// 或导入时沿用了旧 `profile.json` 的情况下，两处就会显示不同版本。
+/// 这里只改缓存字段，不动工作区。
+pub(crate) fn sync_instance_core_cache(git: &Path, inst: &mut InstanceConfig) -> bool {
+    // 只同步稳定版：稳定版必须有精确的发版 tag。开发版可能正好停在某个
+    // tag 提交上，不能仅凭分支名或 tag 就把它改成稳定版，否则概览会误报。
+    if inst.comfy.channel != "stable" {
+        return false;
+    }
+    let live = match read_version(git, &comfy_dir(&inst.root_dir), &inst.comfy.channel) {
+        Ok(live) => live,
+        Err(_) => return false,
+    };
+    if !is_version_tag(&live.current) {
+        return false;
+    }
+    let version = Some(live.current.clone());
+    let reference = live.current.clone();
+    let changed = inst.comfy.version != version
+        || inst.comfy.commit != live.commit
+        || inst.comfy.reference != reference;
+    if changed {
+        inst.comfy.version = version;
+        inst.comfy.commit = live.commit;
+        inst.comfy.reference = reference;
+        log::info!(
+            "实例「{}」ComfyUI 实际版本：{}（已同步概览缓存）",
+            inst.name,
+            live.current
+        );
+    }
+    changed
 }
 
 /// 列出工作区里会被切版本清理的改动。只展示 git 未忽略的文件；`--untracked-files=all`
@@ -910,7 +946,7 @@ fn reinstall_requirements(
     };
     let constraint_str = constraint_path
         .as_ref()
-        .map(|p| p.to_string_lossy().to_string());
+        .map(|p| crate::proc::path_to_file_url(p));
 
     // 镜像同步滞后很常见（新版本包还没同步过去）：失败就换官方源再试一次，
     // 别把「镜像没这个版本」直接甩成「依赖装不上。
@@ -1019,8 +1055,7 @@ fn mark_env_broken(inst: &InstanceConfig, on: &Channel<VersionEvent>) {
     if !matches!(cfg.state, InstanceState::Uninitialized) {
         cfg.state = InstanceState::Error;
         cfg.last_error = Some(
-            "版本已切换，但依赖安装没有完成；环境可能不完整。重新切换版本或回滚快照。"
-                .to_string(),
+            "版本已切换，但依赖安装没有完成；环境可能不完整。重新切换版本或回滚快照。".to_string(),
         );
     }
     let _ = crate::commands::instance::save_instance(&cfg);

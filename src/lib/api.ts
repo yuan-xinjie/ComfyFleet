@@ -30,6 +30,7 @@ import type {
   EnvPlan,
   GitInfo,
   GlobalSettings,
+  FontFamily,
   Health,
   InstallEvent,
   InstallReport,
@@ -37,6 +38,8 @@ import type {
   InstanceConfig,
   InstanceLogEvent,
   InstanceLogState,
+  InstanceProgressEvent,
+  InstanceProgressState,
   InstanceUpdateReq,
   EnvReport,
   WheelRepoList,
@@ -124,6 +127,8 @@ export const api = {
   pickFolder: () => invoke<string | null>('pick_folder'),
 
   settingsGet: () => invoke<GlobalSettings>('settings_get'),
+  /** 本机已安装字体：外观的三组字体选择都从这里取 */
+  fontsList: () => invoke<FontFamily[]>('fonts_list'),
   /** 后端会归一化（去空目录、收敛非法值），返回落盘后的版本 */
   settingsSave: (settings: GlobalSettings) =>
     invoke<GlobalSettings>('settings_save', { settings }),
@@ -216,8 +221,14 @@ export const api = {
   /** 日志快照（尾部 + 序号）；实时增量由 onInstanceLog 推过来 */
   instanceLogState: (instanceId: string, lines?: number) =>
     invoke<InstanceLogState>('instance_log_state', { instanceId, lines }),
+  /** 用记事本打开最近一轮完整日志；浮层只显示尾部 */
+  instanceOpenLog: (instanceId: string) => invoke<void>('instance_open_log', { instanceId }),
   onInstanceLog: (handler: (event: InstanceLogEvent) => void) =>
     listen<InstanceLogEvent>('instance-log', (event) => handler(event.payload)),
+  instanceProgressState: (instanceId: string) =>
+    invoke<InstanceProgressState>('instance_progress_state', { instanceId }),
+  onInstanceProgress: (handler: (event: InstanceProgressEvent) => void) =>
+    listen<InstanceProgressEvent>('instance-progress', (event) => handler(event.payload)),
   instanceOpenUrl: (instanceId: string) => invoke<string>('instance_open_url', { instanceId }),
 
   /** M1 前置：仅用 uv 创建 venv（不装 torch / requirements） */
@@ -259,6 +270,7 @@ export const api = {
     channel.onmessage = onEvent
     return invoke<string>('pty_spawn_instance', { instanceId, cols, rows, onEvent: channel })
   },
+  clipboardReadText: () => invoke<string>('clipboard_read_text'),
   ptyWrite: (id: string, data: string) => invoke<void>('pty_write', { id, data }),
   ptyResize: (id: string, cols: number, rows: number) =>
     invoke<void>('pty_resize', { id, cols, rows }),

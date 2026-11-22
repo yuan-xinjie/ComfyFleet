@@ -109,6 +109,34 @@ export const FLAG_GROUPS: FlagGroup[] = [
         help: '关闭 pinned memory（锁页内存）',
       },
       {
+        flag: '--cache-none',
+        help: '不缓存节点结果，省内存/显存，但每次都要重算每个节点',
+        exclusive: 'cache',
+        risky: true,
+      },
+      {
+        flag: '--cache-classic',
+        help: '老式的激进缓存',
+        exclusive: 'cache',
+      },
+      {
+        flag: '--cache-lru',
+        help: 'LRU 缓存，最多缓存 N 个节点结果（可能更吃内存/显存）',
+        value: { def: '100', numeric: true, placeholder: '100', required: true },
+        exclusive: 'cache',
+      },
+      {
+        flag: '--high-ram',
+        help: '内存很大、宁愿用页面文件也不反复加载模型时用',
+        exclusive: 'cache',
+      },
+      {
+        flag: '--cache-ram',
+        help: '按内存压力缓存：可填两个 GB 值（活跃阈值 / 非活跃阈值），留空=默认',
+        value: { def: '', placeholder: '8 64' },
+        exclusive: 'cache',
+      },
+      {
         flag: '--disable-cuda-graphs',
         help: '关闭 CUDA graphs（个别显卡/自定义节点会因此更稳）',
       },
@@ -305,41 +333,6 @@ export const FLAG_GROUPS: FlagGroup[] = [
         flag: '--disable-triton-backend',
         help: '强制关闭 comfy-kitchen 的 Triton 后端（覆盖启用参数）',
         exclusive: 'triton',
-      },
-    ],
-  },
-  {
-    id: 'cache',
-    title: '缓存',
-    note: '默认是按内存压力自动缓存',
-    flags: [
-      {
-        flag: '--cache-none',
-        help: '不缓存节点结果，省内存/显存，但每次都要重算每个节点',
-        exclusive: 'cache',
-        risky: true,
-      },
-      {
-        flag: '--cache-classic',
-        help: '老式的激进缓存',
-        exclusive: 'cache',
-      },
-      {
-        flag: '--cache-lru',
-        help: 'LRU 缓存，最多缓存 N 个节点结果（可能更吃内存/显存）',
-        value: { def: '100', numeric: true, placeholder: '100', required: true },
-        exclusive: 'cache',
-      },
-      {
-        flag: '--high-ram',
-        help: '内存很大、宁愿用页面文件也不反复加载模型时用',
-        exclusive: 'cache',
-      },
-      {
-        flag: '--cache-ram',
-        help: '按内存压力缓存：可填两个 GB 值（活跃阈值 / 非活跃阈值），留空=默认',
-        value: { def: '', placeholder: '8 64' },
-        exclusive: 'cache',
       },
     ],
   },
@@ -655,6 +648,42 @@ export const ALL_FLAGS: FlagSpec[] = FLAG_GROUPS.flatMap((g) => g.flags)
 
 export const FLAG_BY_NAME = new Map(ALL_FLAGS.map((f) => [f.flag, f]))
 
+/**
+ * 「常规」参数：高级参数开关关闭时默认展示这些。
+ * 只收日常会动、且不需要额外背景知识的选项；实验性/排错路径/改数据源的都留给高级。
+ * 已启用的高级参数仍然会显示，避免用户打开开关后找不到怎么关掉。
+ */
+export const COMMON_FLAGS = new Set([
+  '--highvram',
+  '--lowvram',
+  '--novram',
+  '--cpu',
+  '--reserve-vram',
+  '--disable-smart-memory',
+  '--force-fp32',
+  '--force-fp16',
+  '--fp16-vae',
+  '--fp32-vae',
+  '--cpu-vae',
+  '--cache-none',
+  '--cache-lru',
+  '--preview-method',
+  '--preview-size',
+  '--use-sage-attention',
+  '--use-flash-attention',
+  '--use-pytorch-cross-attention',
+  '--use-split-cross-attention',
+  '--disable-xformers',
+  '--enable-manager',
+  '--disable-manager-ui',
+  '--enable-manager-legacy-ui',
+  '--auto-launch',
+  '--disable-auto-launch',
+  '--dont-print-server',
+  '--disable-product-tips',
+  '--verbose',
+])
+
 /** 由「参数行」取出参数名：支持 `--flag value` 和 `--flag=value` 两种写法 */
 export function lineFlag(line: string): string | null {
   const token = line.trim().split(/\s+/, 1)[0]
@@ -690,7 +719,7 @@ export const MANAGED_FLAGS = [
   '--output-directory',
 ]
 
-/** 互斥组的显示名：界面上把同组参数圈成一块，标题写明「只能选一个」 */
+/** 互斥组的显示名：界面上收成一行下拉，标签用这里的名字 */
 export const EXCLUSIVE_LABELS: Record<string, string> = {
   vram: '显存模式',
   fp: '全局精度',
@@ -709,35 +738,15 @@ export const EXCLUSIVE_LABELS: Record<string, string> = {
   assets: '资产系统',
 }
 
+/** 只有开 / 关两种结果的互斥组：界面上收成一个开关，而不是三选一下拉。 */
+export const BINARY_FLAG_SWITCHES: Record<string, { on: string; off: string }> = {
+  autolaunch: { on: '--auto-launch', off: '--disable-auto-launch' },
+  assets: { on: '--enable-assets', off: '--disable-assets' },
+}
+
 export interface FlagBlock {
   /** 互斥组 id；没有就是「独立开关」块 */
   exclusive?: string
   label: string
   flags: FlagSpec[]
-}
-
-/**
- * 把一个分组拆成「互斥块 + 独立开关块」。
- *
- * argparse 的互斥组是硬约束（同组两个一起给会直接报错），所以界面上不该把它们
- * 和普通开关混在一长串勾选框里 —— 拆成各自一小块，标题写「只能选一个」。
- */
-export function blocksOf(group: FlagGroup): FlagBlock[] {
-  const clusters: FlagBlock[] = []
-  const plain: FlagSpec[] = []
-  for (const spec of group.flags) {
-    if (!spec.exclusive) {
-      plain.push(spec)
-      continue
-    }
-    let block = clusters.find((b) => b.exclusive === spec.exclusive)
-    if (!block) {
-      block = { exclusive: spec.exclusive, label: EXCLUSIVE_LABELS[spec.exclusive] ?? '互斥组', flags: [] }
-      clusters.push(block)
-    }
-    block.flags.push(spec)
-  }
-  const blocks = [...clusters]
-  if (plain.length > 0) blocks.push({ label: clusters.length > 0 ? '其他开关' : '', flags: plain })
-  return blocks
 }

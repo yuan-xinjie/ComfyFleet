@@ -1,25 +1,70 @@
 import Button from '../components/Button'
+import Icon from '../components/Icon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { SearchAddon } from '@xterm/addon-search'
 import { api, decodeBase64, errText } from '../lib/api'
 import {
   TQDM_RE,
+  TQDM_LINE_RE,
   isTaskEnd,
   isTaskStart,
   parseTqdm,
   progressFromTqdm,
   stageFromLine,
   stageFromText,
+  stageFromTqdm,
   tqdmStageText,
   type RunProgress,
 } from '../lib/runProgress'
-import RunProgressBar from '../components/RunProgressBar'
+import RunProgressList from '../components/RunProgressList'
 import type { PtyEvent } from '../types'
 
+/** 终端跟随外观里的等宽字体；CSS 还没就绪时退回系统等宽字体。 */
+function terminalFontFamily(): string {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue('--font-mono')
+    .trim()
+  return value || "'Cascadia Mono', Consolas, monospace"
+}
+
 /** 控制台里成行的 tqdm 更新：从终端输出里摘出来，只喂给上面的进度条。 */
-const CONSOLE_PROGRESS_RE = /\r?[^\r\n]*\d{1,3}%\|[^|]*\|\s*\d+\/\d+\s*\[[^\]]*\][^\r\n]*\r?\n?/g
+const CONSOLE_PROGRESS_RE = new RegExp(TQDM_LINE_RE.source, 'gi')
+
+const SEARCH_DECORATIONS = {
+  matchBackground: '#5a4b00',
+  matchBorder: '#8a7300',
+  matchOverviewRuler: '#8a7300',
+  activeMatchBackground: '#2b63ff',
+  activeMatchBorder: '#8fb0ff',
+  activeMatchColorOverviewRuler: '#2b63ff',
+}
+
+/** WebView 的 Clipboard API 可能被权限挡住；复制失败时退回 execCommand。 */
+async function copyText(text: string): Promise<void> {
+  if (!text) return
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+  } catch {
+    // 继续走旧接口
+  }
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.left = '-9999px'
+  area.style.top = '0'
+  document.body.appendChild(area)
+  area.select()
+  const ok = document.execCommand('copy')
+  area.remove()
+  if (!ok) throw new Error('系统剪贴板不可用')
+}
 
 /** 自检脚本：验证中文、管道吞吐与流式解码（纯 cmd 语法）。 */
 const SELF_TEST = [
@@ -36,15 +81,12 @@ interface Props {
   instanceName: string
   /** 隐藏的常驻页签没有布局，切回来时要重新适配终端尺寸。 */
   active?: boolean
-  /** 启动器进程的实时进度，控制台自己没跑任务时用它兜底。 */
-  externalProgress?: RunProgress | null
 }
 
 export default function ConsoleView({
   instanceId,
   instanceName,
   active = true,
-  externalProgress = null,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -63,13 +105,20 @@ export default function ConsoleView({
   /** 跨 chunk 的半截 tqdm 行；不加缓冲会在拆分处漏到终端里。 */
   const progressCarryRef = useRef('')
   const progressStageRef = useRef('采样')
+  const searchAddonRef = useRef<SearchAddon | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [label, setLabel] = useState('未连接')
   const [focused, setFocused] = useState(true)
   const [consoleProgress, setConsoleProgress] = useState<RunProgress | null>(null)
-  const shownProgress = consoleProgress ?? externalProgress
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResult, setSearchResult] = useState({ index: -1, count: 0 })
+  const [searchReady, setSearchReady] = useState(false)
+  const [hasSelection, setHasSelection] = useState(false)
+  const shownProgresses = consoleProgress ? [consoleProgress] : []
 
   /**
    * 把 tqdm 进度从终端输出里摘掉：进度更新只改进度条，终端保持一行一条。
@@ -91,7 +140,9 @@ export default function ConsoleView({
     for (const match of input.matchAll(CONSOLE_PROGRESS_RE)) {
       const info = parseTqdm(match[0])
       if (!info) continue
-      progressStageRef.current = stageFromText(tqdmStageText(info), progressStageRef.current)
+      progressStageRef.current =
+        stageFromTqdm(info) ||
+        stageFromText(tqdmStageText(info), progressStageRef.current)
       setConsoleProgress(progressFromTqdm(info, progressStageRef.current))
     }
 
@@ -114,6 +165,37 @@ export default function ConsoleView({
     return normal
   }, [])
 
+  const copySelection = useCallback(async () => {
+    const term = termRef.current
+    const text = term?.getSelection() ?? ''
+    if (!text) return false
+    try {
+      await copyText(text)
+      termRef.current?.focus()
+      setError(null)
+      return true
+    } catch (e) {
+      setError(`复制失败：${errText(e)}`)
+      return false
+    }
+  }, [])
+
+  const pasteClipboard = useCallback(async () => {
+    const term = termRef.current
+    if (!term) return false
+    try {
+      const text = await api.clipboardReadText()
+      if (!text) return false
+      term.paste(text)
+      term.focus()
+      setError(null)
+      return true
+    } catch (e) {
+      setError(`粘贴失败：${errText(e)}`)
+      return false
+    }
+  }, [])
+
   // ---- 终端初始化 ----
   useEffect(() => {
     const host = hostRef.current
@@ -121,11 +203,13 @@ export default function ConsoleView({
     aliveRef.current = true
 
     const term = new Terminal({
-      fontFamily: '"SF Mono", "Cascadia Mono", Consolas, monospace',
+      fontFamily: terminalFontFamily(),
       fontSize: 13.5,
       lineHeight: 1.35,
       cursorBlink: true,
       scrollback: 10_000,
+      // 搜索匹配高亮走 xterm 的 proposed API；桌面端固定版本，可以接受。
+      allowProposedApi: true,
       theme: {
         background: '#030307',
         foreground: '#e7e9f2',
@@ -152,10 +236,59 @@ export default function ConsoleView({
     } catch {
       // WebGL 不可用就退回 DOM 渲染
     }
+    const search = new SearchAddon()
+    term.loadAddon(search)
+    searchAddonRef.current = search
+    setSearchReady(true)
+    const searchSub = search.onDidChangeResults(({ resultIndex, resultCount }) => {
+      setSearchResult({ index: resultIndex, count: resultCount })
+    })
     fit.fit()
 
     termRef.current = term
     fitRef.current = fit
+
+    const selectionSub = term.onSelectionChange(() => {
+      setHasSelection(term.hasSelection())
+    })
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true
+      const ctrl = event.ctrlKey || event.metaKey
+      const key = event.key.toLowerCase()
+      if (ctrl && key === 'c') {
+        if (term.hasSelection()) {
+          event.preventDefault()
+          event.stopPropagation()
+          void copySelection()
+          return false
+        }
+        if (event.shiftKey) {
+          event.preventDefault()
+          event.stopPropagation()
+          return false
+        }
+        return true
+      }
+      if (ctrl && event.key === 'Insert' && term.hasSelection()) {
+        event.preventDefault()
+        event.stopPropagation()
+        void copySelection()
+        return false
+      }
+      if (ctrl && key === 'v') {
+        event.preventDefault()
+        event.stopPropagation()
+        void pasteClipboard()
+        return false
+      }
+      if (event.shiftKey && event.key === 'Insert') {
+        event.preventDefault()
+        event.stopPropagation()
+        void pasteClipboard()
+        return false
+      }
+      return true
+    })
 
     const dataSub = term.onData((data) => {
       const id = sessionRef.current
@@ -173,9 +306,16 @@ export default function ConsoleView({
     const onMouseDown = () => term.focus()
     const onFocusIn = () => setFocused(true)
     const onFocusOut = () => setFocused(false)
+    const onContextMenu = (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (term.hasSelection()) void copySelection()
+      else void pasteClipboard()
+    }
     host.addEventListener('mousedown', onMouseDown)
     host.addEventListener('focusin', onFocusIn)
     host.addEventListener('focusout', onFocusOut)
+    host.addEventListener('contextmenu', onContextMenu, true)
 
     const resizeSub = term.onResize(({ cols, rows }) => {
       const id = sessionRef.current
@@ -198,14 +338,43 @@ export default function ConsoleView({
       host.removeEventListener('mousedown', onMouseDown)
       host.removeEventListener('focusin', onFocusIn)
       host.removeEventListener('focusout', onFocusOut)
+      host.removeEventListener('contextmenu', onContextMenu, true)
       dataSub.dispose()
       resizeSub.dispose()
+      searchSub.dispose()
+      selectionSub.dispose()
+      setHasSelection(false)
+      searchAddonRef.current = null
+      setSearchReady(false)
       const id = sessionRef.current
       if (id) void api.ptyKill(id).catch(() => undefined)
       sessionRef.current = null
       term.dispose()
       termRef.current = null
       fitRef.current = null
+    }
+  }, [])
+
+  // 外观里换等宽字体时，xterm 要跟着换并重新适配列宽。
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    const sync = () => {
+      const family = terminalFontFamily()
+      if (!family || term.options.fontFamily === family) return
+      term.options.fontFamily = family
+      try {
+        fitRef.current?.fit()
+      } catch {
+        // 容器尚未布局完成
+      }
+    }
+    sync()
+    window.addEventListener('comfyfleet:fonts', sync)
+    document.fonts?.addEventListener('loadingdone', sync)
+    return () => {
+      window.removeEventListener('comfyfleet:fonts', sync)
+      document.fonts?.removeEventListener('loadingdone', sync)
     }
   }, [])
 
@@ -292,29 +461,18 @@ export default function ConsoleView({
     if (sessionRef.current) setLabel(`CMD · ${instanceName}`)
   }, [instanceName])
 
-  // 进控制台就把环境终端连上：少一次点击。
-  // 切换实例时必须先收掉旧 PTY，否则新实例的终端永远连不上且旧 cmd 留在后台。
-  const autoRef = useRef(false)
+  // 终端默认不连接，等用户点「连接终端」。
+  // 切换实例时先收掉旧 PTY；正在 spawn 的旧请求作废后会自行 ptyKill。
   useEffect(() => {
-    autoRef.current = false
-    // 让正在 spawn、尚未返回的旧实例请求作废（返回后会自行 ptyKill）。
     attachSeqRef.current += 1
     spawningRef.current = false
     pendingRef.current = []
     const old = sessionRef.current
-    if (old) {
-      sessionRef.current = null
-      setRunning(false)
-      setLabel('未连接')
-      void api.ptyKill(old).catch(() => undefined)
-    }
-    const t = window.setTimeout(() => {
-      if (autoRef.current) return
-      autoRef.current = true
-      void enterEnv()
-    }, 120)
-    return () => window.clearTimeout(t)
-  }, [enterEnv, instanceId])
+    sessionRef.current = null
+    setRunning(false)
+    setLabel('未连接')
+    if (old) void api.ptyKill(old).catch(() => undefined)
+  }, [instanceId])
 
   const endSession = useCallback(async () => {
     const id = sessionRef.current
@@ -364,7 +522,69 @@ export default function ConsoleView({
       }
     })
     return () => window.cancelAnimationFrame(id)
-  }, [active])
+  }, [active, searchOpen])
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true)
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    })
+  }, [])
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    setSearchResult({ index: -1, count: 0 })
+    searchAddonRef.current?.clearDecorations()
+    termRef.current?.focus()
+  }, [])
+
+  const searchNavigate = useCallback(
+    (direction: 1 | -1) => {
+      const search = searchAddonRef.current
+      if (!search) return
+      if (!searchQuery) {
+        searchInputRef.current?.focus()
+        return
+      }
+      const options = { decorations: SEARCH_DECORATIONS, incremental: false }
+      if (direction === 1) search.findNext(searchQuery, options)
+      else search.findPrevious(searchQuery, options)
+    },
+    [searchQuery],
+  )
+
+  useEffect(() => {
+    if (!searchReady) return
+    const search = searchAddonRef.current
+    if (!search) return
+    if (!searchOpen || !searchQuery) {
+      search.clearDecorations()
+      setSearchResult({ index: -1, count: 0 })
+      return
+    }
+    search.findNext(searchQuery, { decorations: SEARCH_DECORATIONS, incremental: true })
+  }, [searchReady, searchOpen, searchQuery])
+
+  useEffect(() => {
+    if (!active) return
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+      if (event.key.toLowerCase() !== 'f') return
+      event.preventDefault()
+      event.stopPropagation()
+      openSearch()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [active, openSearch])
+
+  const searchCount = searchQuery
+    ? searchResult.count === 0
+      ? '无匹配'
+      : `${searchResult.index >= 0 ? searchResult.index + 1 : 0}/${searchResult.count}`
+    : ''
 
   return (
     <div className="console-wrap">
@@ -389,6 +609,12 @@ export default function ConsoleView({
         >
           Ctrl+C
         </Button>
+        <Button className="ghost" onClick={() => void copySelection()} disabled={!hasSelection}>
+          复制
+        </Button>
+        <Button className="ghost" onClick={() => void pasteClipboard()}>
+          粘贴
+        </Button>
         <Button className="ghost" onClick={() => void endSession()} disabled={!running}>
           结束会话
         </Button>
@@ -398,16 +624,82 @@ export default function ConsoleView({
         <Button className="ghost sm" onClick={selfTest} disabled={running} title="验证中文与管道">
           自检
         </Button>
+        <Button
+          className={`ghost sm console-search-toggle${searchOpen ? ' is-on' : ''}`}
+          icon
+          onClick={() => (searchOpen ? closeSearch() : openSearch())}
+          aria-label="搜索控制台"
+          aria-expanded={searchOpen}
+          title="搜索控制台（Ctrl+F）"
+        >
+          <Icon name="search" size={14} />
+        </Button>
 
         <div className="spacer" />
         <span className="meta">{running && !focused ? '键盘未聚焦 · 点一下终端' : label}</span>
       </div>
 
+      {searchOpen && (
+        <div className="console-search" role="search">
+          <Icon name="search" size={13} />
+          <input
+            ref={searchInputRef}
+            className="console-search-input"
+            type="text"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                closeSearch()
+              } else if (event.key === 'Enter') {
+                event.preventDefault()
+                searchNavigate(event.shiftKey ? -1 : 1)
+              }
+            }}
+            placeholder="搜索"
+            aria-label="在控制台中搜索"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <span className="console-search-count" aria-live="polite">
+            {searchCount}
+          </span>
+          <button
+            type="button"
+            className="console-search-btn"
+            onClick={() => searchNavigate(-1)}
+            aria-label="上一个匹配"
+            title="上一个匹配"
+          >
+            <Icon name="up" size={13} />
+          </button>
+          <button
+            type="button"
+            className="console-search-btn"
+            onClick={() => searchNavigate(1)}
+            aria-label="下一个匹配"
+            title="下一个匹配"
+          >
+            <Icon name="down" size={13} />
+          </button>
+          <button
+            type="button"
+            className="console-search-btn"
+            onClick={closeSearch}
+            aria-label="关闭搜索"
+            title="关闭搜索"
+          >
+            <Icon name="close" size={13} />
+          </button>
+        </div>
+      )}
+
       {error && <div className="banner err" style={{ margin: '10px 16px 0' }}>{error}</div>}
 
       {/* xterm 直接往这个 div 里 appendChild */}
       <div className="term-host" ref={hostRef} />
-      {shownProgress && <RunProgressBar progress={shownProgress} className="console-progress" />}
+      <RunProgressList progresses={shownProgresses} className="console-progress" />
     </div>
   )
 }

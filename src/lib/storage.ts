@@ -53,15 +53,24 @@ export function emptyModelDir(isDefault = false): ModelDir {
   return { path: '', type: null, isDefault }
 }
 
-/** 目录归属的中文说法，两个页面共用 */
+/** 输入/输出目录的归属说法，两个页面共用 */
 export const SOURCE_LABEL: Record<string, string> = {
-  own: '实例自己的',
+  own: '实例目录',
   extra: '实例附加',
-  shared: '全局共享',
+  shared: '共享目录',
+  launch: '启动参数',
+}
+
+/** 模型目录列表里标清楚这是模型目录，不和输入/输出混在一起 */
+export const MODEL_SOURCE_LABEL: Record<string, string> = {
+  own: '模型 · 实例目录',
+  extra: '模型 · 实例附加',
+  shared: '模型 · 共享目录',
+  launch: '模型 · 启动参数',
 }
 
 export const DIR_MODE_LABEL: Record<string, string> = {
-  own: '用实例自己的',
-  shared: '用共享目录',
+  own: '实例目录',
+  shared: '共享目录',
   custom: '自定义目录',
 }

@@ -1,17 +1,15 @@
 import { forwardRef, type InputHTMLAttributes, type ReactNode } from 'react'
 import Button from './Button'
 import Icon from './Icon'
-import TextInput from './TextInput'
+import PathInput from './PathInput'
 
 export interface DirectoryInputProps extends InputHTMLAttributes<HTMLInputElement> {
   /** 外层布局类，默认沿用表单的 inline-input。 */
   wrapperClassName?: string
-  /** 打开系统目录选择器；不传则不显示选择按钮。 */
+  /** 输入框右侧内嵌的选文件夹按钮；不传则不显示。 */
   onPick?: () => void
-  pickLabel?: string
   pickTitle?: string
   pickDisabled?: boolean
-  pickIcon?: boolean
   /** 打开当前目录；不传则不显示文件夹按钮。 */
   onOpen?: () => void
   openTitle?: string
@@ -21,9 +19,9 @@ export interface DirectoryInputProps extends InputHTMLAttributes<HTMLInputElemen
 }
 
 /**
- * 目录/路径输入的统一外壳：文本框 + 选择目录 + 打开目录 + 额外操作。
+ * 目录/路径输入的统一外壳：内嵌选文件夹按钮 + 额外的打开/操作按钮。
  *
- * 输入框本身仍走 TextInput，外层沿用现有的 inline-input / dir-single / dir-row
+ * 输入框本身走 PathInput，外层沿用现有的 inline-input / dir-single / dir-row
  * 布局类，避免路径行各自拼一套按钮。
  */
 const DirectoryInput = forwardRef<HTMLInputElement, DirectoryInputProps>(
@@ -32,10 +30,8 @@ const DirectoryInput = forwardRef<HTMLInputElement, DirectoryInputProps>(
       className = '',
       wrapperClassName = 'inline-input',
       onPick,
-      pickLabel = '选择',
       pickTitle,
       pickDisabled = false,
-      pickIcon = true,
       onOpen,
       openTitle = '打开目录',
       openDisabled = false,
@@ -46,21 +42,14 @@ const DirectoryInput = forwardRef<HTMLInputElement, DirectoryInputProps>(
   ) {
     return (
       <div className={wrapperClassName}>
-        <TextInput ref={ref} className={className} {...rest} />
-        {onPick && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onPick}
-            disabled={pickDisabled}
-            title={pickTitle}
-            aria-label={pickTitle ?? pickLabel}
-          >
-            {pickIcon && <Icon name="folder" size={13} />}
-            {pickLabel}
-          </Button>
-        )}
+        <PathInput
+          ref={ref}
+          className={className}
+          onPick={onPick}
+          pickTitle={pickTitle}
+          pickDisabled={pickDisabled}
+          {...rest}
+        />
         {actions}
         {onOpen && (
           <Button

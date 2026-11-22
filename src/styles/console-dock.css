@@ -17,11 +17,18 @@
   transform: translate(-50%, 0) scale(1) !important;
 }
 
+/* 形变层和岛同时画会叠出双胶囊；过渡期间只保留形变层。 */
+body.island-morph-active .island-root {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .window-morph {
   position: fixed;
   z-index: 70;
   box-sizing: border-box;
-  border: 1px solid transparent;
+  border: 0;
   pointer-events: none;
   will-change: left, top, width, height, border-radius, opacity;
 }
@@ -180,6 +187,30 @@ body.cdock-resizing { user-select: none; }
 
 .cdock-spacer { flex: 1 1 auto; }
 
+/* 控制台底部：当前所有活跃进度；原生、tqdm、rich 各占一行。 */
+.cdock-run-progress {
+  gap: 8px;
+  padding: 9px 16px 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 0;
+  background: rgba(10, 12, 20, 0.34);
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.cdock-run-progress .run-progress-what {
+  color: #e7ebf5;
+  font-size: 11.5px;
+}
+
+.cdock-run-progress .run-progress-speed {
+  color: #aeb7cb;
+  font-size: 11px;
+}
+
+.cdock-run-progress .run-progress-track { background: rgba(255, 255, 255, 0.12); }
+.cdock-run-progress .run-progress-fill { background: var(--blue); }
+
 .cdock-head .ghost.sm {
   height: 26px;
   padding: 0 9px;
@@ -212,6 +243,72 @@ body.cdock-resizing { user-select: none; }
   color: #fff;
 }
 
+.cdock-head .cdock-search-toggle.is-on {
+  background: var(--hover-bg);
+  color: var(--hover-ink);
+}
+
+.cdock-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--card-surface-2);
+  color: var(--term-dim);
+}
+
+.cdock-search .icon { color: var(--term-dim); }
+
+.cdock-search-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--term-ink);
+  font: 12px var(--font-mono);
+}
+
+.cdock-search-input::placeholder { color: var(--term-dim); }
+.cdock-search-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-wash);
+}
+
+.cdock-search-count {
+  min-width: 52px;
+  color: var(--term-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cdock-search-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: transparent;
+  color: #c9cedd;
+  cursor: pointer;
+}
+
+.cdock-search-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--hover-border);
+  color: var(--hover-ink);
+}
+
 .cdock-head .log-font-actions { gap: 3px; }
 
 .cdock-head .log-font-btn {
@@ -237,6 +334,7 @@ body.cdock-resizing { user-select: none; }
   overflow-wrap: anywhere;
   tab-size: 4;
   scrollbar-gutter: stable;
+  overflow-anchor: none;
 }
 
 .cdock-log .log-line { display: block; }
@@ -246,6 +344,11 @@ body.cdock-resizing { user-select: none; }
 .cdock-log .log-line.warn { color: #ffc27a; }
 .cdock-log .log-line.ok { color: #7ee2b8; }
 .cdock-log .log-tag-info { color: #7ee2b8; }
+.cdock-log .log-line.is-search-hit { background: rgba(255, 196, 80, 0.16); }
+.cdock-log .log-line.is-search-current {
+  background: rgba(43, 99, 255, 0.34);
+  box-shadow: inset 2px 0 0 var(--blue-ink);
+}
 
 .cdock-empty {
   display: flex;
@@ -343,6 +446,42 @@ body.cdock-resizing { user-select: none; }
   background: var(--hover-2);
   color: var(--ink-1);
 }
+:root.theme-light .cdock-head .cdock-search-toggle.is-on {
+  background: var(--hover-bg);
+  color: var(--blue-ink);
+}
+
+:root.theme-light .cdock-run-progress {
+  border-bottom-color: var(--line-2);
+  background: rgba(248, 250, 255, 0.72);
+}
+
+:root.theme-light .cdock-run-progress .run-progress-what { color: var(--ink-1); }
+:root.theme-light .cdock-run-progress .run-progress-speed { color: var(--ink-3); }
+:root.theme-light .cdock-run-progress .run-progress-track { background: var(--line-2); }
+
+:root.theme-light .cdock-search {
+  border-bottom-color: var(--line-2);
+  background: var(--card-surface-2);
+  color: var(--ink-4);
+}
+:root.theme-light .cdock-search .icon { color: var(--ink-4); }
+:root.theme-light .cdock-search-input {
+  border-color: var(--line);
+  background: var(--sunken);
+  color: var(--ink-1);
+}
+:root.theme-light .cdock-search-input::placeholder { color: var(--ink-4); }
+:root.theme-light .cdock-search-count { color: var(--ink-4); }
+:root.theme-light .cdock-search-btn {
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+:root.theme-light .cdock-search-btn:hover {
+  background: var(--blue-wash);
+  border-color: var(--blue-ring);
+  color: var(--blue-ink);
+}
 
 :root.theme-light .cdock-log { color: var(--ink-1); }
 :root.theme-light .cdock-log .log-line.dim { color: var(--ink-4); }
@@ -351,6 +490,11 @@ body.cdock-resizing { user-select: none; }
 :root.theme-light .cdock-log .log-line.warn { color: #9a5b00; }
 :root.theme-light .cdock-log .log-line.ok,
 :root.theme-light .cdock-log .log-tag-info { color: #0a7a53; }
+:root.theme-light .cdock-log .log-line.is-search-hit { background: rgba(255, 196, 80, 0.28); }
+:root.theme-light .cdock-log .log-line.is-search-current {
+  background: rgba(43, 99, 255, 0.2);
+  box-shadow: inset 2px 0 0 var(--blue);
+}
 :root.theme-light .cdock-empty { color: var(--ink-4); }
 
 :root.theme-light .cdock-latest {

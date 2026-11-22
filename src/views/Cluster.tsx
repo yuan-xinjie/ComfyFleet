@@ -1,5 +1,7 @@
-import { TextInput, Checkbox } from '../components/Form'
+import { TextInput } from '../components/Form'
+import Switch from '../components/Switch'
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errText } from '../lib/api'
@@ -907,26 +909,24 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                     />
                   </label>
                 </div>
-                <label className="sync-switch">
-                  <Checkbox
-                    type="checkbox"
-                    checked={create.allowLan}
-                    onChange={(e) => setCreate({ ...create, allowLan: e.target.checked })}
-                  />
-                  <span className="sync-switch-track" aria-hidden="true" />
+                <Switch
+                  className="sync-switch"
+                  checked={create.allowLan}
+                  onChange={(allowLan) => setCreate({ ...create, allowLan })}
+                >
                   <span>允许局域网加入</span>
                   <small className="hint">局域网为明文 HTTP，仅限可信网络</small>
-                </label>
+                </Switch>
               </form>
-              <Button
+              <IconTextButton
                 type="submit"
                 form="sync-create-form"
                 className="primary sync-entry-action"
                 disabled={busy === 'create' || !create.name.trim() || create.password.length < 8}
-              >
-                <Icon name="plus" size={15} />
+               icon="plus" iconSize={15}>
+                
                 {busy === 'create' ? '创建中…' : '创建集群'}
-              </Button>
+              </IconTextButton>
             </section>
 
             <section className="sync-entry-pane">
@@ -982,15 +982,15 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                   />
                 </label>
               </form>
-              <Button
+              <IconTextButton
                 type="submit"
                 form="sync-join-form"
                 className="primary sync-entry-action"
                 disabled={busy === 'join' || !join.host.trim() || !join.password}
-              >
-                <Icon name="download" size={15} />
+               icon="download" iconSize={15}>
+                
                 {busy === 'join' ? '连接中…' : '加入集群'}
-              </Button>
+              </IconTextButton>
             </section>
           </div>
         ) : status.role === 'leader' && status.cluster ? (
@@ -1020,32 +1020,32 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
               <div className="sync-head-center">
                 <div className="sync-addresses">
                   {status.cluster.addresses.map((address) => (
-                    <Button
+                    <IconTextButton
                       className="sync-address"
                       key={address}
                       onClick={() => void copy(address)}
                       title="复制地址"
-                    >
-                      <Icon name="copy" size={12} />
+                     icon="copy" iconSize={12}>
+                      
                       {address}
-                    </Button>
+                    </IconTextButton>
                   ))}
                 </div>
               </div>
               <div className="sync-head-actions">
-                <Button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
-                  <Icon name="refresh" size={13} />
+                <IconTextButton className="ghost sm" onClick={() => void refresh()} disabled={!!busy} icon="refresh" iconSize={13}>
+                  
                   刷新
-                </Button>
-                <Button className="ghost sm" onClick={() => void toggleLan()} disabled={!!busy}>
-                  <Icon name="globe" size={13} />
+                </IconTextButton>
+                <IconTextButton className="ghost sm" onClick={() => void toggleLan()} disabled={!!busy} icon="globe" iconSize={13}>
+                  
                   {confirmAction === 'lan'
                     ? '确认开放？'
                     : status.cluster.allowLan
                       ? '改为仅本机'
                       : '开放局域网'}
-                </Button>
-                <Button
+                </IconTextButton>
+                <IconTextButton
                   className="ghost sm"
                   onClick={() => {
                     setConfirmAction('')
@@ -1054,10 +1054,10 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                     setDeleteOpen(true)
                   }}
                   disabled={!!busy}
-                >
-                  <Icon name="close" size={13} />
+                 icon="close" iconSize={13}>
+                  
                   删除集群
-                </Button>
+                </IconTextButton>
               </div>
             </header>
 
@@ -1111,14 +1111,14 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                       {stateText(sourceState)}
                     </span>
                     <div className="spacer" />
-                    <Button
+                    <IconTextButton
                       className="ghost sm"
                       onClick={() => setChangesOpen(true)}
                       disabled={!changes || changesBusy}
-                    >
-                      <Icon name="diagnostics" size={13} />
+                     icon="diagnostics" iconSize={13}>
+                      
                       {changesBusy ? '扫描中…' : '变化明细'}
-                    </Button>
+                    </IconTextButton>
                   </header>
                   {locals.length ? (
                     <Select
@@ -1260,26 +1260,26 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 )}
               </div>
               <div className="sync-head-actions">
-                <Button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
-                  <Icon name="refresh" size={13} />
+                <IconTextButton className="ghost sm" onClick={() => void refresh()} disabled={!!busy} icon="refresh" iconSize={13}>
+                  
                   刷新
-                </Button>
-                <Button
+                </IconTextButton>
+                <IconTextButton
                   className="ghost sm"
                   onClick={() => setCompareOpen(true)}
                   disabled={!compareSources.length || !compareTargets.length}
-                >
-                  <Icon name="versions" size={13} />
+                 icon="versions" iconSize={13}>
+                  
                   对比
-                </Button>
-                <Button
+                </IconTextButton>
+                <IconTextButton
                   className={confirmAction === 'leave' ? 'danger sm' : 'ghost sm'}
                   onClick={() => void doLeave()}
                   disabled={!!busy}
-                >
-                  <Icon name="close" size={13} />
+                 icon="close" iconSize={13}>
+                  
                   {confirmAction === 'leave' ? '确认退出？' : '退出集群'}
-                </Button>
+                </IconTextButton>
               </div>
             </header>
 
@@ -1368,14 +1368,14 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                   源实例运行中
                 </span>
               )}
-              <Button
+              <IconTextButton
                 className="primary sync-send"
                 disabled={!canStart}
                 onClick={() => void doStart()}
-              >
-                <Icon name="send" size={15} />
+               icon="send" iconSize={15}>
+                
                 {busy === 'start' || preparing ? '正在准备…' : '发送同步请求'}
-              </Button>
+              </IconTextButton>
             </div>
           ) : status.role === 'member' && status.member ? (
             <div className="sync-sendbar">
@@ -1386,19 +1386,19 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 </span>
               </div>
               <div className="spacer" />
-              <Button className="ghost sm" onClick={() => void refresh()} disabled={!!busy}>
-                <Icon name="refresh" size={13} />
+              <IconTextButton className="ghost sm" onClick={() => void refresh()} disabled={!!busy} icon="refresh" iconSize={13}>
+                
                 刷新
-              </Button>
+              </IconTextButton>
             </div>
           ) : (
             <div className="sync-sendbar">
               <span className="sync-sendbar-names">未加入集群</span>
               <div className="spacer" />
-              <Button className="ghost sm" onClick={() => void refresh()}>
-                <Icon name="refresh" size={13} />
+              <IconTextButton className="ghost sm" onClick={() => void refresh()} icon="refresh" iconSize={13}>
+                
                 刷新
-              </Button>
+              </IconTextButton>
             </div>
           ),
           bottomSlot,
@@ -1475,10 +1475,10 @@ export default function Cluster({ instances, notify, onBack, initialSourceId, ac
                 </span>
                 {changes.lastSyncAt && <span>{dateClock(changes.lastSyncAt)}</span>}
                 <div className="spacer" />
-                <Button className="ghost sm" onClick={() => void loadChanges(false)} disabled={changesBusy}>
-                  <Icon name="refresh" size={13} />
+                <IconTextButton className="ghost sm" onClick={() => void loadChanges(false)} disabled={changesBusy} icon="refresh" iconSize={13}>
+                  
                   {changesBusy ? '扫描中…' : '刷新'}
-                </Button>
+                </IconTextButton>
               </div>
               <DiffSummary diff={changes.diff} />
               <DiffDetails diff={changes.diff} />

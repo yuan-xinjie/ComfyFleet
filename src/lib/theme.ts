@@ -1,4 +1,5 @@
 import type { ThemePalette, UiOpts } from '../types'
+import { uiFontStacks } from './fonts'
 
 export type ThemeMode = UiOpts['theme']
 
@@ -9,6 +10,7 @@ export const DEFAULT_DARK_PALETTE: ThemePalette = {
   bgMid: '#111525',
   bgBottom: '#020203',
   cardColor: '#161b2a',
+  barColor: '#090b14',
 }
 
 /** 亮色默认配色：浅灰蓝渐变 + 白卡片，文字由亮色 token 自动转深色。 */
@@ -18,12 +20,14 @@ export const DEFAULT_LIGHT_PALETTE: ThemePalette = {
   bgMid: '#eef2fa',
   bgBottom: '#e3e9f4',
   cardColor: '#ffffff',
+  barColor: '#ffffff',
 }
 
 /** 兼容旧导入名；暗色仍是默认。 */
 export const DEFAULT_THEME = DEFAULT_DARK_PALETTE
 
 export const MAX_CARD_TRANSPARENCY = 80
+export const MAX_BAR_TRANSPARENCY = 80
 
 export function normalizeHex(input: string): string | null {
   let value = input.trim().toLowerCase()
@@ -75,6 +79,26 @@ export function onAccent(hex: string): string {
   return luminance(hex) > 0.19 ? '#0b0b12' : '#ffffff'
 }
 
+/** 任意表面色上选黑字或白字；用于卡片/顶栏/页面这类可换色的表面。 */
+function contrastInk(hex: string): string {
+  return luminance(hex) > 0.22 ? '#141824' : '#f5f6fb'
+}
+
+function setInkFamily(root: HTMLElement, prefix: string, ink: string) {
+  root.style.setProperty(`--${prefix}-ink`, ink)
+  root.style.setProperty(`--${prefix}-ink-2`, rgbaHex(ink, 0.82))
+  root.style.setProperty(`--${prefix}-ink-3`, rgbaHex(ink, 0.74))
+  root.style.setProperty(`--${prefix}-ink-4`, rgbaHex(ink, 0.66))
+}
+
+/** 强调色在深/浅文字底上的安全变体。 */
+function accentInk(accent: string, ink: string): string {
+  if (ink === '#141824') {
+    return luminance(accent) > 0.55 ? mixHex(accent, '#000000', 0.42) : accent
+  }
+  return luminance(accent) > 0.6 ? accent : mixHex(accent, '#ffffff', 0.38)
+}
+
 export function paletteFor(ui: UiOpts, mode: ThemeMode): ThemePalette {
   const fallback = mode === 'light' ? DEFAULT_LIGHT_PALETTE : DEFAULT_DARK_PALETTE
   const palette = mode === 'light' ? ui.light : ui.dark
@@ -85,6 +109,7 @@ export function paletteFor(ui: UiOpts, mode: ThemeMode): ThemePalette {
     bgMid: normalizeHex(palette.bgMid) ?? fallback.bgMid,
     bgBottom: normalizeHex(palette.bgBottom) ?? fallback.bgBottom,
     cardColor: normalizeHex(palette.cardColor) ?? fallback.cardColor,
+    barColor: normalizeHex(palette.barColor) ?? fallback.barColor,
   }
 }
 
@@ -103,6 +128,11 @@ export function applyTheme(ui: UiOpts) {
   const root = document.documentElement
   root.dataset.theme = mode
   root.classList.toggle('theme-light', isLight)
+
+  const fonts = uiFontStacks(ui)
+  root.style.setProperty('--font-sans', fonts.sans)
+  root.style.setProperty('--font-mono', fonts.mono)
+  window.dispatchEvent(new Event('comfyfleet:fonts'))
 
   root.style.setProperty('--blue', accent)
   root.style.setProperty('--blue-hover', mixHex(accent, isLight ? '#000000' : '#ffffff', 0.1))
@@ -131,6 +161,36 @@ export function applyTheme(ui: UiOpts) {
   )
   root.style.setProperty('--card-press', rgbaHex(mixHex(theme.cardColor, '#000000', 0.06), cardAlpha))
 
+  // 底栏默认自己控制透明度，也可以直接跟随卡片；颜色仍然单独取 barColor。
+  const rawBarTransparency = Number(ui.barTransparency)
+  const ownBarTransparency = Number.isFinite(rawBarTransparency)
+    ? Math.min(MAX_BAR_TRANSPARENCY, Math.max(0, rawBarTransparency))
+    : 64
+  const barTransparency = ui.barFollowCard ? transparency : ownBarTransparency
+  const barAlpha = 1 - barTransparency / 100
+  root.style.setProperty('--bar-color', theme.barColor)
+  root.style.setProperty('--bar-alpha', String(barAlpha))
+  root.style.setProperty('--bar', rgbaHex(theme.barColor, barAlpha))
+
+  // 底栏文字跟着底栏实际亮度走，避免亮色主题选深底栏后还压深色字。
+  const barSurface = mixHex(theme.bgMid, theme.barColor, barAlpha)
+  const barIsLight = luminance(barSurface) > 0.22
+  const barInk = barIsLight ? '#141824' : '#f5f6fb'
+  root.style.setProperty('--bar-ink', barInk)
+  root.style.setProperty('--bar-ink-2', rgbaHex(barInk, 0.82))
+  root.style.setProperty('--bar-ink-3', rgbaHex(barInk, 0.74))
+  root.style.setProperty('--bar-ink-4', rgbaHex(barInk, 0.66))
+  root.style.setProperty(
+    '--bar-blue-ink',
+    barIsLight
+      ? luminance(accent) > 0.55
+        ? mixHex(accent, '#000000', 0.42)
+        : accent
+      : luminance(accent) > 0.6
+        ? accent
+        : mixHex(accent, '#ffffff', 0.38),
+  )
+
   // 卡片文字跟着卡片实际亮度走：暗色主题里选了亮色卡片也不会白字糊成一片。
   const cardSurface = mixHex(theme.bgMid, theme.cardColor, cardAlpha)
   const cardIsLight = luminance(cardSurface) > 0.22
@@ -153,6 +213,17 @@ export function applyTheme(ui: UiOpts) {
   root.style.setProperty('--card-ink-2', rgbaHex(cardInk, 0.82))
   root.style.setProperty('--card-ink-3', rgbaHex(cardInk, 0.74))
   root.style.setProperty('--card-ink-4', rgbaHex(cardInk, 0.66))
+
+  // 顶栏、页面和实色卡片各自有自己的底色，文字不能共用一套 ink。
+  const topbarInk = contrastInk(theme.bgTop)
+  const pageInk = contrastInk(theme.bgMid)
+  const cardSolidInk = contrastInk(theme.cardColor)
+  setInkFamily(root, 'topbar', topbarInk)
+  setInkFamily(root, 'page', pageInk)
+  setInkFamily(root, 'card-solid', cardSolidInk)
+  root.style.setProperty('--topbar-blue-ink', accentInk(accent, topbarInk))
+  root.style.setProperty('--page-blue-ink', accentInk(accent, pageInk))
+  root.style.setProperty('--card-solid-blue-ink', accentInk(accent, cardSolidInk))
 
   root.style.setProperty('--bg-top', theme.bgTop)
   root.style.setProperty('--bg-mid', theme.bgMid)

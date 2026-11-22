@@ -709,7 +709,9 @@ pub fn run(
                 .env("UV_HTTP_CONNECT_TIMEOUT", "30")
                 .env("UV_HTTP_RETRIES", "5");
             if let Some(path) = &constraints {
-                cmd.arg("--constraint").arg(path);
+                // uv 不认带空格的 --constraint 路径，传 file URL 才不会被截断。
+                cmd.arg("--constraint")
+                    .arg(crate::proc::path_to_file_url(path));
             }
             match stream(&mut cmd, Step::Requirements, &mut *emit, cancel) {
                 Ok(_) => {

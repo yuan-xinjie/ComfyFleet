@@ -1,5 +1,6 @@
 import { DirectoryInput, TextInput } from '../components/Form'
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import coreLogo from '../assets/core-logo.svg'
 import { api, errText } from '../lib/api'
@@ -19,8 +20,9 @@ import type {
 import { stateText, stateTone } from '../lib/state'
 import { comfyPath } from '../lib/paths'
 import type { RunProgress } from '../lib/runProgress'
-import { deriveLogTask, stageLabel } from '../lib/runProgress'
+import { deriveLogTask, latestProgress, progressFromStructured, stageLabel } from '../lib/runProgress'
 import { useInstanceLogStream } from '../lib/useInstanceLogStream'
+import { useInstanceProgress } from '../lib/useInstanceProgress'
 import Icon from '../components/Icon'
 import ModelDirsButton from '../components/ModelDirsButton'
 import Select from '../components/Select'
@@ -106,8 +108,6 @@ function address(inst: InstanceConfig) {
 }
 
 
-const taskStageText = stageLabel
-
 /**
  * 卡片中间的任务区：日志里有 tqdm 就按真实步数显示，只有队列信息时给不确定进度；
  * 没有任务（或实例没在跑）就安静地显示空闲。
@@ -116,19 +116,25 @@ function InstanceActivity({ inst, health }: { inst: InstanceConfig; health: Heal
   const running = inst.state === 'running'
   const starting = inst.state === 'starting'
   const { lines } = useInstanceLogStream(inst.id, running, 120)
+  const { progress: structuredProgress } = useInstanceProgress(inst.id, running)
   const logTask = useMemo(() => deriveLogTask(lines), [lines])
+  const structured = useMemo(() => {
+    const latest = latestProgress(structuredProgress)
+    return latest ? progressFromStructured(latest) : null
+  }, [structuredProgress])
+  const stage = structured?.stage ?? logTask.stage
+  const queueActive = (health?.queueRunning ?? 0) > 0 || (health?.queuePending ?? 0) > 0
   const progress = useMemo<RunProgress | null>(() => {
     if (!running) return null
+    if (structured?.task) return structured.task
+    if (!queueActive) return null
     if (logTask.task) return logTask.task
-    // 刚提交、还没吐出 tqdm 时，队列接口已经知道有任务了
-    if (health && health.queueRunning > 0) {
-      // 还没有 tqdm 时，deriveLogTask 的默认阶段是“采样”，但那只是未知；
-      // 用“正在执行”避免刚提交就误报正在采样。
-      const what = logTask.stage === '采样' ? '正在执行' : taskStageText(logTask.stage)
-      return { what, value: 0, max: 0, speed: null }
+    if (logTask.started && !logTask.ended) {
+      const label = stageLabel(logTask.stage)
+      return { what: label, label, value: 0, max: 0, speed: null }
     }
     return null
-  }, [health, logTask.stage, logTask.task, running])
+  }, [logTask.ended, logTask.stage, logTask.started, logTask.task, queueActive, running, structured?.task])
 
   if (!progress) {
     const pending = health?.queuePending ?? 0
@@ -153,7 +159,13 @@ function InstanceActivity({ inst, health }: { inst: InstanceConfig; health: Heal
     progress.max > 0
       ? Math.round(Math.max(0, Math.min(100, (progress.value / progress.max) * 100)))
       : null
+  const hasSteps = stage === '采样' || stage === '编码' || stage === '解码'
+  const step =
+    hasSteps && progress.max > 0
+      ? `${Math.round(Math.max(0, progress.value))}/${Math.round(progress.max)}`
+      : null
   const extras = [
+    step ?? (percent !== null ? `${percent}%` : null),
     health && health.queuePending > 0 ? `排队 ${health.queuePending}` : null,
     progress.speed,
   ]
@@ -163,7 +175,7 @@ function InstanceActivity({ inst, health }: { inst: InstanceConfig; health: Heal
   return (
     <div className="inst-activity busy" aria-label={`任务：${progress.what}`}>
       <div className="inst-task-meta">
-        <span>{progress.what}</span>
+        <span>{progress.label ?? progress.what}</span>
         {extras && <span>{extras}</span>}
       </div>
       <div
@@ -264,7 +276,8 @@ export default function Home({
   useEffect(() => {
     if (!modal) return
     const previous = document.activeElement as HTMLElement | null
-    const scroller = document.querySelector<HTMLElement>('.content')
+    // 页面是常驻容器，直接查 .content 会命中隐藏的设置页；只锁当前可见页面。
+    const scroller = document.querySelector<HTMLElement>('.view.is-active .content')
     const prevOverflow = scroller?.style.overflowY ?? ''
     if (scroller) scroller.style.overflowY = 'hidden'
 
@@ -599,18 +612,18 @@ export default function Home({
               )}
             </div>
             <div className="row">
-              <Button className="ghost" onClick={openRemoteModal}>
-                <Icon name="globe" size={14} />
+              <IconTextButton className="ghost" onClick={openRemoteModal} icon="globe" iconSize={14}>
+                
                 添加云端
-              </Button>
-              <Button className="ghost" onClick={() => setModal('import')}>
-                <Icon name="download" size={14} />
+              </IconTextButton>
+              <IconTextButton className="ghost" onClick={() => setModal('import')} icon="download" iconSize={14}>
+                
                 导入已有安装
-              </Button>
-              <Button className="primary" onClick={() => setModal('create')}>
-                <Icon name="plus" size={15} />
+              </IconTextButton>
+              <IconTextButton className="primary" onClick={() => setModal('create')} icon="plus" iconSize={15}>
+                
                 新建实例
-              </Button>
+              </IconTextButton>
             </div>
           </div>
 
@@ -668,16 +681,16 @@ export default function Home({
                         </span>
                       </div>
                       <div className="inst-actions">
-                        <Button
+                        <IconTextButton
                           type="button"
                           className="inst-run start"
                           onClick={() => void openRemote(inst)}
                           title={`在浏览器打开 ${url}`}
                           aria-label={`打开「${inst.name}」`}
-                        >
-                          <Icon name="globe" size={13} />
+                         icon="globe" iconSize={13}>
+                          
                           打开
-                        </Button>
+                        </IconTextButton>
                         <Button type="button" className="ghost sm" onClick={() => editRemote(inst)}>
                           编辑
                         </Button>
@@ -738,24 +751,22 @@ export default function Home({
 
                     <div className="inst-dirs" role="group" aria-label={`${inst.name} 的快捷目录`}>
                       <ModelDirsButton inst={inst} notify={notify} />
-                      <Button
-                        type="button"
+                      <IconTextButton
+                        icon="nodes"
                         className="dir-btn"
                         onClick={() => void openDir(inst, 'custom_nodes', '节点目录')}
                         title={`打开节点目录：${comfyPath(inst, 'custom_nodes')}`}
                       >
-                        <Icon name="nodes" size={14} />
                         节点目录
-                      </Button>
-                      <Button
-                        type="button"
+                      </IconTextButton>
+                      <IconTextButton
+                        icon="folder"
                         className="dir-btn"
                         onClick={() => void openOutput(inst)}
                         title="打开这个实例实际使用的输出目录（可能是共享目录）"
                       >
-                        <Icon name="folder" size={14} />
                         输出目录
-                      </Button>
+                      </IconTextButton>
                     </div>
 
                     <div className="inst-mid">
@@ -763,17 +774,17 @@ export default function Home({
                     </div>
 
                     <div className="inst-actions">
-                      <Button
+                      <IconTextButton
                         type="button"
                         className={`inst-run ${run.kind}`}
                         onClick={() => (run.kind === 'stop' ? void stopInstance(inst) : void startInstance(inst))}
                         disabled={run.disabled}
                         title={run.title}
                         aria-label={`${run.label}「${inst.name}」`}
-                      >
-                        <Icon name={run.kind === 'stop' ? 'stop' : 'play'} size={13} />
+                       icon={run.kind === 'stop' ? 'stop' : 'play'} iconSize={13}>
+                        
                         {run.label}
-                      </Button>
+                      </IconTextButton>
                       <Button
                         type="button"
                         className="ghost sm"
@@ -1208,10 +1219,10 @@ export default function Home({
               <Button className="ghost" onClick={() => setRemoveTarget(null)}>
                 取消
               </Button>
-              <Button className="danger solid" onClick={() => void removeNow()} disabled={busy}>
-                <Icon name="trash" size={14} />
+              <IconTextButton className="danger solid" onClick={() => void removeNow()} disabled={busy} icon="trash" iconSize={14}>
+                
                 {busy ? '移除中…' : '确认移除'}
-              </Button>
+              </IconTextButton>
             </div>
           </div>
         </div>

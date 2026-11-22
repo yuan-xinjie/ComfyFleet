@@ -11,6 +11,7 @@ mod compat;
 mod config;
 mod db;
 mod error;
+mod fonts;
 mod git;
 mod gpu;
 mod install;
@@ -19,7 +20,9 @@ mod net;
 mod picker;
 mod pip;
 mod proc;
+mod progress;
 mod pty;
+mod pybridge;
 mod runtime;
 mod snapshot;
 mod state;
@@ -283,6 +286,7 @@ pub fn run() {
             commands::app::open_url,
             commands::app::pick_folder,
             commands::app::set_tray_icon,
+            commands::fonts::fonts_list,
             commands::settings::wheel_repo_list,
             commands::settings::wheel_repo_download,
             commands::settings::wheel_repo_install,
@@ -335,6 +339,7 @@ pub fn run() {
             commands::env::env_cancel_install,
             commands::env::env_plan,
             commands::git::git_info,
+            commands::clipboard::clipboard_read_text,
             commands::pty::pty_spawn,
             commands::pty::pty_spawn_instance,
             commands::pty::pty_write,
@@ -343,6 +348,8 @@ pub fn run() {
             commands::run::instance_start,
             commands::run::instance_stop,
             commands::run::instance_log_state,
+            commands::run::instance_progress_state,
+            commands::run::instance_open_log,
             commands::run::instance_open_url,
             commands::run::instance_health,
             commands::version::version_info,

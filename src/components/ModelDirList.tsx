@@ -1,10 +1,15 @@
-import { TextInput } from './Form'
+import { useState } from 'react'
+import { PathInput, TextInput } from './Form'
 import Button from './Button'
+import IconTextButton from './IconTextButton'
 import { api } from '../lib/api'
-import { MODEL_TYPES, emptyModelDir, modelTypeLabel } from '../lib/storage'
+import { MODEL_TYPES, emptyModelDir } from '../lib/storage'
 import type { ModelDir } from '../types'
 import Icon from './Icon'
 import Select from './Select'
+
+/** Select 里的「自定义分类…」哨兵值，不是真实类型 */
+const CUSTOM_TYPE = '__custom_category__'
 
 interface Props {
   dirs: ModelDir[]
@@ -19,8 +24,8 @@ interface Props {
 /**
  * 模型目录列表编辑器，全局共享与实例附加共用。
  *
- * 一行 = 一个目录；`type` 为空表示整包 models 根目录（下面按子目录名找类型），
- * 选了具体类型就只认那一个。
+ * 一行 = 一个目录；`type` 为空表示 models 根目录（下面按子目录名找类型），
+ * 选了具体类型就只认那一个；类型下拉里可以输入自定义分类。
  */
 export default function ModelDirList({
   dirs,
@@ -29,10 +34,20 @@ export default function ModelDirList({
   disabled = false,
   onError,
 }: Props) {
+  const [customEdit, setCustomEdit] = useState<{ index: number; value: string } | null>(null)
+
   const set = (index: number, patch: Partial<ModelDir>) =>
     onChange(dirs.map((dir, i) => (i === index ? { ...dir, ...patch } : dir)))
 
   const remove = (index: number) => onChange(dirs.filter((_, i) => i !== index))
+
+  const commitCustom = () => {
+    const edit = customEdit
+    if (!edit) return
+    const type = edit.value.trim()
+    setCustomEdit(null)
+    if (type && type !== CUSTOM_TYPE) set(edit.index, { type })
+  }
 
   const add = () => onChange([...dirs, emptyModelDir()])
 
@@ -45,6 +60,15 @@ export default function ModelDirList({
     api.openPath(target).catch((e) => onError?.(String((e as Error)?.message ?? e)))
   }
 
+  const pick = async (index: number) => {
+    try {
+      const folder = await api.pickFolder()
+      if (folder) set(index, { path: folder })
+    } catch (e) {
+      onError?.(String((e as Error)?.message ?? e))
+    }
+  }
+
   return (
     <div className="dir-list">
       {dirs.length === 0 && (
@@ -54,41 +78,80 @@ export default function ModelDirList({
       )}
       {dirs.map((dir, index) => (
         <div className="dir-row" key={index}>
-          <TextInput
+          <PathInput
             className="mono dir-path"
             aria-label="模型目录路径"
             placeholder="D:\\models 或 D:\\sd\\checkpoints"
             value={dir.path}
             spellCheck={false}
             disabled={disabled}
+            pickTitle="选择模型目录"
+            pickDisabled={disabled}
+            onPick={() => void pick(index)}
             onChange={(e) => set(index, { path: e.target.value })}
           />
-          <Select
-            className="dir-type"
-            ariaLabel="模型目录类型"
-            value={dir.type ?? ''}
-            disabled={disabled}
-            onChange={(value) => set(index, { type: value || null })}
-            options={[
-              { value: '', label: '整包 models 根目录' },
-              ...MODEL_TYPES.map((type) => {
-                const [label, ...rest] = modelTypeLabel(type).split(' · ')
-                return { value: type, label, meta: rest.join(' · ') || undefined }
-              }),
-            ]}
-          />
+          {customEdit?.index === index ? (
+            <TextInput
+              className="dir-type-input"
+              aria-label="自定义模型分类"
+              placeholder="分类名"
+              value={customEdit.value}
+              autoFocus
+              spellCheck={false}
+              disabled={disabled}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) =>
+                setCustomEdit({ index, value: event.target.value })
+              }
+              onBlur={commitCustom}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  commitCustom()
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setCustomEdit(null)
+                }
+              }}
+            />
+          ) : (
+            <Select
+              className="dir-type"
+              ariaLabel="模型目录类型"
+              value={dir.type ?? ''}
+              disabled={disabled}
+              onChange={(value) => {
+                if (value === CUSTOM_TYPE) {
+                  setCustomEdit({ index, value: dir.type ?? '' })
+                  return
+                }
+                setCustomEdit(null)
+                set(index, { type: value || null })
+              }}
+              options={[
+                { value: '', label: 'models 根目录' },
+                ...(dir.type &&
+                dir.type !== CUSTOM_TYPE &&
+                !(MODEL_TYPES as readonly string[]).includes(dir.type)
+                  ? [{ value: dir.type, label: dir.type }]
+                  : []),
+                { value: CUSTOM_TYPE, label: '自定义分类…' },
+                ...MODEL_TYPES.map((type) => ({ value: type, label: type })),
+              ]}
+            />
+          )}
           {showDefault && (
-            <Button
+            <IconTextButton
               type="button"
               className={`ghost sm dir-default${dir.isDefault ? ' on' : ''}`}
               aria-label={dir.isDefault ? '当前下载落点' : '设为下载落点'}
               title="新模型下载 / 保存默认落到这个目录（写进 yaml 的 is_default）"
               disabled={disabled}
               onClick={() => makeDefault(index)}
-            >
-              <Icon name={dir.isDefault ? 'check' : 'download'} size={13} />
+             icon={dir.isDefault ? 'check' : 'download'} iconSize={13}>
+              
               {dir.isDefault ? '下载落点' : '设为下载落点'}
-            </Button>
+            </IconTextButton>
           )}
           <Button
             type="button"
@@ -113,10 +176,10 @@ export default function ModelDirList({
         </div>
       ))}
       <div className="dir-actions">
-        <Button type="button" className="ghost sm" onClick={add} disabled={disabled}>
-          <Icon name="plus" size={13} />
+        <IconTextButton type="button" className="ghost sm" onClick={add} disabled={disabled} icon="plus" iconSize={13}>
+          
           添加目录
-        </Button>
+        </IconTextButton>
       </div>
     </div>
   )

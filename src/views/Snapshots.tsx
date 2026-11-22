@@ -1,5 +1,6 @@
 import { TextInput, Checkbox } from '../components/Form'
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type {
@@ -40,6 +41,8 @@ interface Props {
   running: boolean
   notify: (kind: 'ok' | 'err', msg: string) => void
   onChanged: () => void
+  /** 恢复中禁止启动，交给灵动岛隐藏启动按钮。 */
+  onBusyChange?: (busy: boolean) => void
 }
 
 interface OpState {
@@ -236,9 +239,11 @@ function DiffAccordion(props: {
   title: string
   diff: SnapshotDiff | null
   busy: boolean
+  loaded: boolean
+  error?: string
   onOpen: () => void
 }) {
-  const { title, diff, busy, onOpen } = props
+  const { title, diff, busy, loaded, error, onOpen } = props
   const [open, setOpen] = useState(false)
   return (
     <div className={`snap-acc${open ? ' is-open' : ''}`}>
@@ -260,6 +265,10 @@ function DiffAccordion(props: {
       {open &&
         (busy ? (
           <div className="snap-diff-loading">读取差异…</div>
+        ) : error ? (
+          <div className="snap-diff-loading">读取失败：{error}</div>
+        ) : !loaded ? (
+          <div className="snap-diff-loading">尚未读取</div>
         ) : diff ? (
           <SnapshotDiffView diff={diff} />
         ) : (
@@ -342,7 +351,7 @@ function ReportPanel({ report, open = false }: { report: RestoreReport; open?: b
   )
 }
 
-export default function SnapshotsView({ inst, running, notify, onChanged }: Props) {
+export default function SnapshotsView({ inst, running, notify, onChanged, onBusyChange }: Props) {
   const [items, setItems] = useState<SnapshotSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [label, setLabel] = useState('')
@@ -351,7 +360,9 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
   const [details, setDetails] = useState<Record<string, SnapshotDetail>>({})
   const [detailBusy, setDetailBusy] = useState<string | null>(null)
   const [rowDiffs, setRowDiffs] = useState<Record<string, RestorePreview>>({})
-  const [diffBusy, setDiffBusy] = useState<string | null>(null)
+  // 每条快照独立记录加载中/失败，避免 A 的请求把 B 的 loading 抢走。
+  const [diffBusy, setDiffBusy] = useState<Set<string>>(() => new Set())
+  const [diffErrors, setDiffErrors] = useState<Record<string, string>>({})
   const [confirm, setConfirm] = useState<{ id: string; preview: RestorePreview } | null>(null)
   const [wheelGate, setWheelGate] = useState<{
     id: string
@@ -395,6 +406,8 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
     setOpen(null)
     setDetails({})
     setRowDiffs({})
+    setDiffBusy(new Set())
+    setDiffErrors({})
     setConfirm(null)
     setReport(null)
     setOp(null)
@@ -405,6 +418,14 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
   }, [load, inst.id])
 
   const busy = op?.state === 'running'
+
+  useEffect(() => {
+    onBusyChange?.(busy)
+  }, [busy, onBusyChange])
+
+  useEffect(() => {
+    return () => onBusyChange?.(false)
+  }, [onBusyChange])
 
   useEffect(() => {
     if (!confirm) return
@@ -456,15 +477,25 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
 
   /** 「恢复它会改动什么」按需计算（要现场采一次当前状态） */
   const ensureRowDiff = async (id: string) => {
-    if (rowDiffs[id] || diffBusy === id) return
-    setDiffBusy(id)
+    if (rowDiffs[id] || diffBusy.has(id)) return
+    setDiffBusy((prev) => new Set(prev).add(id))
+    setDiffErrors((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
     try {
       const preview = await api.snapshotRestorePreview(inst.id, id)
       setRowDiffs((prev) => ({ ...prev, [id]: preview }))
     } catch (e) {
-      notify('err', errText(e))
+      setDiffErrors((prev) => ({ ...prev, [id]: errText(e) }))
     } finally {
-      setDiffBusy(null)
+      setDiffBusy((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -683,14 +714,14 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
             {loading ? '读取中…' : latestRel ? `最新：${latestRel}` : '还没有快照'}
           </span>
           <div className="row snap-tools">
-            <Button
+            <IconTextButton
               className="ghost sm"
               onClick={() => void load()}
               title="刷新快照列表"
-            >
-              <Icon name="refresh" size={13} />
+             icon="refresh" iconSize={13}>
+              
               刷新
-            </Button>
+            </IconTextButton>
           </div>
         </header>
 
@@ -771,10 +802,10 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                         if (e.key === 'Enter' && !creating) void create()
                       }}
                     />
-                    <Button className="snap-cta" onClick={() => void create()} disabled={creating}>
-                      <Icon name="plus" size={13} />
+                    <IconTextButton className="snap-cta" onClick={() => void create()} disabled={creating} icon="plus" iconSize={13}>
+                      
                       {creating ? '记录中…' : '记录当前状态'}
-                    </Button>
+                    </IconTextButton>
                   </div>
                 )}
               </div>
@@ -887,58 +918,37 @@ export default function SnapshotsView({ inst, running, notify, onChanged }: Prop
                           title="这条快照改了什么"
                           diff={detail?.diffPrevious ?? null}
                           busy={detailBusy === item.id}
+                          loaded={Boolean(detail)}
                           onOpen={() => void ensureDetail(item.id)}
                         />
-                      )}
-
-                      {detail && detail.snapshot.nodes.length > 0 && (
-                        <details className="snap-acc snap-inventory">
-                          <summary>
-                            <span className="snap-acc-caret">
-                              <Icon name="chevron" size={11} />
-                            </span>
-                            快照里的节点 {detail.snapshot.nodes.length} · 包{' '}
-                            {Object.keys(detail.snapshot.packages).length}
-                          </summary>
-                          <div className="snap-inventory-body">
-                            {detail.snapshot.nodes.map((node) => (
-                              <span key={node.name} className="snap-tag">
-                                {node.name} {short(node.commit)}
-                                {node.url ? '' : ' · 手工'}
-                                {node.dirty ? ' · 未提交' : ''}
-                                {node.content === 'full' && node.url ? ' · 本地归档' : ''}
-                                {node.content === 'missing' ? ' · 归档缺失' : ''}
-                                {node.enabled ? '' : ' · 禁用'}
-                              </span>
-                            ))}
-                          </div>
-                        </details>
                       )}
 
                       <DiffAccordion
                         title="恢复它会改动什么"
                         diff={diff}
-                        busy={diffBusy === item.id}
+                        busy={diffBusy.has(item.id)}
+                        loaded={Boolean(rowDiffs[item.id])}
+                        error={diffErrors[item.id]}
                         onOpen={() => void ensureRowDiff(item.id)}
                       />
 
                       <div className="snap-detail-actions">
-                        <Button
+                        <IconTextButton
                           className="primary sm"
                           onClick={() => void askRestore(item.id)}
                           disabled={running || busy || previewing === item.id}
-                        >
-                          <Icon name="refresh" size={13} />
+                         icon="refresh" iconSize={13}>
+                          
                           {previewing === item.id ? '读取差异…' : '恢复到这一刻'}
-                        </Button>
-                        <Button
+                        </IconTextButton>
+                        <IconTextButton
                           className={`ghost sm${arming === item.id ? ' danger' : ''}`}
                           onClick={() => void remove(item)}
                           disabled={busy}
-                        >
-                          <Icon name="trash" size={13} />
+                         icon="trash" iconSize={13}>
+                          
                           {arming === item.id ? '确认删除' : '删除'}
-                        </Button>
+                        </IconTextButton>
                       </div>
                     </div>
                   )}

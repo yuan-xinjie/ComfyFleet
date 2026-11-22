@@ -1,4 +1,4 @@
-import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type { InstanceConfig, RepoWheel, VersionEvent, WheelRepoList } from '../types'
@@ -20,6 +20,8 @@ interface Props {
   inst: InstanceConfig
   running: boolean
   notify: (kind: 'ok' | 'err', msg: string) => void
+  /** 安装中禁止启动，交给灵动岛隐藏启动按钮。 */
+  onBusyChange?: (busy: boolean) => void
 }
 
 interface CardProgress {
@@ -47,7 +49,7 @@ function groupProgress(
   return states.find((state) => state.state === 'running') ?? states[states.length - 1] ?? null
 }
 
-export default function WheelPanel({ inst, running, notify }: Props) {
+export default function WheelPanel({ inst, running, notify, onBusyChange }: Props) {
   const [repo, setRepo] = useState<WheelRepoList | null>(null)
   const [repoBusy, setRepoBusy] = useState(false)
   const [repoError, setRepoError] = useState<string | null>(null)
@@ -64,6 +66,14 @@ export default function WheelPanel({ inst, running, notify }: Props) {
   const [opPhase, setOpPhase] = useState('准备中')
   const [opTab, setOpTab] = useState<OperationTab>('detail')
   const [opOpen, setOpOpen] = useState(false)
+
+  useEffect(() => {
+    onBusyChange?.(phase === 'running')
+  }, [phase, onBusyChange])
+
+  useEffect(() => {
+    return () => onBusyChange?.(false)
+  }, [onBusyChange])
 
   const loadRepo = useCallback(
     async (refresh: boolean) => {
@@ -204,8 +214,6 @@ export default function WheelPanel({ inst, running, notify }: Props) {
       ? '另一个轮子正在安装，等它结束再装。'
       : null
 
-  const totalCompatible = groups.reduce((sum, group) => sum + group.compatible.length, 0)
-
   const opTitle = pick
     ? `${phase === 'running' ? (pick.force ? '强制安装' : '安装') : phase === 'ok' ? '安装完成' : '安装失败'} ${pick.wheel.group || pick.wheel.name}`
     : ''
@@ -240,10 +248,10 @@ export default function WheelPanel({ inst, running, notify }: Props) {
             {new Date(repo.fetchedAt * 1000).toLocaleString('zh-CN', { hour12: false })}
           </span>
         ) : null}
-        <Button className="ghost" disabled={repoBusy} onClick={() => void loadRepo(true)}>
-          <Icon name="refresh" size={13} />
+        <IconTextButton className="ghost" disabled={repoBusy} onClick={() => void loadRepo(true)} icon="refresh" iconSize={13}>
+          
           {repoBusy ? '刷新中…' : '刷新仓库'}
-        </Button>
+        </IconTextButton>
       </div>
 
       <div className="panel-body">
@@ -263,17 +271,6 @@ export default function WheelPanel({ inst, running, notify }: Props) {
               <Icon name="alert" size={13} />
             </span>
             <div>刷新失败，仍显示上次缓存：{repo.error}</div>
-          </div>
-        )}
-
-        {repo?.repoUrl && (
-          <div className="wheel-panel-source">
-            <span className="mono" title={repo.repoUrl}>
-              {repo.repoUrl}
-            </span>
-            <span className="wheel-panel-count">
-              {totalCompatible} 个可用于当前环境 · 共 {repo.total} 个 wheel
-            </span>
           </div>
         )}
 

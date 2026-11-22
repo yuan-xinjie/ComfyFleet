@@ -1,10 +1,12 @@
 pub mod accel;
 pub mod activity;
 pub mod app;
+pub mod clipboard;
 pub mod cluster;
 pub mod deps;
 pub mod diag;
 pub mod env;
+pub mod fonts;
 pub mod git;
 pub mod instance;
 pub mod models;

@@ -360,6 +360,7 @@ pub fn install_wheel(
     name: &str,
     pypi: &str,
     target: &str,
+    expected_sha256: Option<&str>,
     settings: &GlobalSettings,
     on: &Channel<VersionEvent>,
 ) -> Result<(), AppError> {
@@ -415,11 +416,9 @@ pub fn install_wheel(
             std::fs::create_dir_all(dir)?;
         }
         config::atomic_write(&constraints, pins.as_bytes())?;
-        let _ = on.send(VersionEvent::info(
-            "accel",
-            "已把当前 torch / torchvision / torchaudio / torchcodec 钉成约束：依赖冲突会直接报错，不会偷偷换掉你的 torch",
-        ));
-        Some(constraints.to_string_lossy().to_string())
+        // uv 在 Windows 上会把带空格的 --constraint 路径截成 `D:\Program`；
+        // file URL 没有空格，能把完整约束文件交过去。
+        Some(crate::proc::path_to_file_url(&constraints))
     };
 
     let url = proxy_url(settings, target);
@@ -431,12 +430,17 @@ pub fn install_wheel(
     // 直接 URL 安装时 uv 会把下载进度吞掉（非 TTY 不输出百分比）。
     // 先自己带进度下载到本地，再让 uv 装本地文件，控制台才能看到真实下载进度。
     if url.starts_with("http") {
-        match download_and_normalize(&url, pypi, on) {
+        match download_and_normalize(&url, pypi, expected_sha256, on) {
             Ok(w) => {
                 local_wheel = Some(w);
                 manual_download = true;
             }
             Err(e) => {
+                // 仓库已经给出 SHA-256 时，下载失败/校验不符绝不能退回 uv 直连：
+                // 那样等于绕过完整性校验，供应链投毒仍然成立。
+                if expected_sha256.is_some() {
+                    return Err(e);
+                }
                 let _ = on.send(VersionEvent::warn(
                     "accel",
                     format!("预下载轮子失败，改回让 uv 直接下载：{}", e.message),
@@ -511,13 +515,16 @@ pub fn install_wheel(
                 "accel",
                 "这个轮子的文件名版本号和包内 METADATA 不一致（uv 会拒绝），正在按 METADATA 改名后重试",
             ));
-            match download_and_normalize(&url, pypi, on) {
+            match download_and_normalize(&url, pypi, expected_sha256, on) {
                 Ok(w) => {
                     local_wheel = Some(w);
                     renamed = true;
                     continue; // 同一个源，换成改名后的本地文件重试
                 }
                 Err(e) => {
+                    if expected_sha256.is_some() {
+                        return Err(e);
+                    }
                     let _ = on.send(VersionEvent::warn(
                         "accel",
                         format!("自动改名失败，{}", e.message),
@@ -627,9 +634,27 @@ impl Drop for CachedWheel {
 fn download_and_normalize(
     url: &str,
     pypi: &str,
+    expected_sha256: Option<&str>,
     on: &Channel<VersionEvent>,
 ) -> Result<CachedWheel, AppError> {
     use std::io::Read as _;
+
+    // 轮子会以用户权限进入 Python 导入路径，下载必须走 HTTPS。
+    let secure_url = url.starts_with("https://")
+        || url.starts_with("http://127.0.0.1:")
+        || url.starts_with("http://localhost:");
+    if !secure_url {
+        return Err(AppError::new(
+            "WHEEL_INSECURE",
+            "轮子下载地址必须是 HTTPS（或本机 HTTP 代理）",
+        ));
+    }
+    let expected_sha256 = expected_sha256.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(expected) = expected_sha256 {
+        if expected.len() != 64 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(AppError::new("WHEEL_HASH", "仓库返回的 SHA-256 格式不合法"));
+        }
+    }
 
     let dir = config::shared_dir().join("accel").join("downloads");
     std::fs::create_dir_all(&dir)?;
@@ -660,6 +685,9 @@ fn download_and_normalize(
     let tmp = dir.join(&raw_name);
 
     let agent = ureq::AgentBuilder::new()
+        // ModelScope 的 resolve 地址会 302 到 CDN；不跟随会把 302 页面当成轮子。
+        // 跟随但校验最终地址必须仍是 HTTPS，避免被重定向降级到明文。
+        .redirects(5)
         .timeout_connect(Duration::from_secs(10))
         .timeout(Duration::from_secs(1800))
         .user_agent(UA)
@@ -671,6 +699,16 @@ fn download_and_normalize(
         }
         other => AppError::new("WHEEL_DOWNLOAD", format!("下载轮子失败，{other}")),
     })?;
+    let final_url = resp.get_url();
+    let final_secure = final_url.starts_with("https://")
+        || final_url.starts_with("http://127.0.0.1:")
+        || final_url.starts_with("http://localhost:");
+    if !final_secure {
+        return Err(AppError::new(
+            "WHEEL_INSECURE",
+            "轮子下载被重定向到非 HTTPS 地址，已中止",
+        ));
+    }
     const MAX_WHEEL_BYTES: u64 = 8 * 1024 * 1024 * 1024;
     let total = resp
         .header("content-length")
@@ -747,6 +785,16 @@ fn download_and_normalize(
         } else {
             format!("下载轮子完成：{}", crate::sync::human_bytes(written))
         }));
+    }
+    if let Some(expected) = expected_sha256 {
+        let actual = crate::sync::sha256_file(&tmp)?;
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(AppError::new(
+                "WHEEL_HASH",
+                format!("轮子 SHA-256 校验失败（期望 {expected}，实际 {actual}）"),
+            ));
+        }
     }
     let guard = TempDownload {
         path: tmp.clone(),
@@ -999,5 +1047,65 @@ mod tests {
         assert_eq!(env.python, "3.12.7");
         assert_eq!(env.torch.as_deref(), Some("2.6.0+cu124"));
         assert_eq!(env.torch_cuda.as_deref(), Some("12.4"));
+    }
+
+    fn serve_once(
+        status: &str,
+        headers: &str,
+        body: Vec<u8>,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/demo-1.0.0-py3-none-any.whl",
+            listener.local_addr().unwrap()
+        );
+        let headers = headers.to_string();
+        let status = status.to_string();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let head = format!(
+                "HTTP/1.1 {status}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(head.as_bytes()).unwrap();
+            stream.write_all(&body).unwrap();
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn downloads_wheel_through_redirect() {
+        use sha2::{Digest, Sha256};
+
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut cursor);
+            let opt = zip::write::SimpleFileOptions::default();
+            zip.start_file("demo-1.0.0.dist-info/METADATA", opt)
+                .unwrap();
+            std::io::Write::write_all(&mut zip, b"Name: demo\nVersion: 1.0.0\n").unwrap();
+            zip.finish().unwrap();
+        }
+        let wheel = cursor.into_inner();
+        let expected = format!("{:x}", Sha256::digest(&wheel));
+        let (cdn_url, cdn) = serve_once(
+            "200 OK",
+            "Content-Type: application/octet-stream\r\n",
+            wheel.clone(),
+        );
+        let (source_url, source) =
+            serve_once("302 Found", &format!("Location: {cdn_url}\r\n"), Vec::new());
+
+        let on = Channel::new(|_| Ok(()));
+        let cached = download_and_normalize(&source_url, "demo", Some(&expected), &on).unwrap();
+        assert!(cached.path.exists());
+        source.join().unwrap();
+        cdn.join().unwrap();
     }
 }

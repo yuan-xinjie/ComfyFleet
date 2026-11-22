@@ -14,7 +14,10 @@ export default function RunProgressBar({
   return (
     <div className={`run-progress ${className}`.trim()}>
       <div className="run-progress-line">
-        <span className="run-progress-what">{progress.what}</span>
+        <span className="run-progress-what">
+          <span className="run-progress-stage">{progress.label ?? progress.what}</span>
+          {progress.detail && <span className="run-progress-detail">{progress.detail}</span>}
+        </span>
         <span className="run-progress-speed">{progress.speed ?? '—'}</span>
       </div>
       <div

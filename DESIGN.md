@@ -50,53 +50,53 @@ colors:
   terminal-ink: "#e7e9f2"
 typography:
   body:
-    fontFamily: "Inter, Segoe UI, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "13.5px"
     fontWeight: 400
     lineHeight: 1.55
   heading:
-    fontFamily: "Inter, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "15px"
     fontWeight: 600
     letterSpacing: "-0.012em"
   section:
-    fontFamily: "Inter, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "13.5px"
     fontWeight: 600
   display:
-    fontFamily: "Inter, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "26px"
     fontWeight: 600
     letterSpacing: "-0.035em"
   card-title:
-    fontFamily: "Inter, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "22px"
     fontWeight: 600
     letterSpacing: "-0.028em"
   metric:
-    fontFamily: "SF Mono, Cascadia Mono, Consolas, monospace"
+    fontFamily: "Cascadia Mono, Consolas, monospace"
     fontSize: "26px"
     fontWeight: 600
     letterSpacing: "-0.03em"
   dialog:
-    fontFamily: "Inter, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "16px"
     fontWeight: 600
   fact:
-    fontFamily: "Inter, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "17px"
     fontWeight: 500
   small:
-    fontFamily: "Inter, Segoe UI, Microsoft YaHei UI, sans-serif"
+    fontFamily: "Segoe UI, Microsoft YaHei UI, sans-serif"
     fontSize: "11.5px"
     fontWeight: 400
   micro:
-    fontFamily: "SF Mono, Cascadia Mono, Consolas, monospace"
+    fontFamily: "Cascadia Mono, Consolas, monospace"
     fontSize: "10.5px"
     fontWeight: 500
     letterSpacing: "0.02em"
   mono:
-    fontFamily: "SF Mono, Cascadia Mono, Consolas, monospace"
+    fontFamily: "Cascadia Mono, Consolas, monospace"
     fontSize: "13.5px"
 rounded:
   check: "4px"
@@ -191,8 +191,9 @@ components:
 
 ## Typography
 
-- **Inter**（自托管 `@fontsource/inter`，400/500/600/700）承担界面；中文回落到 Microsoft YaHei UI，这是语言决定的，不作为风格选择。
-- **SF Mono / Cascadia Mono / Consolas** 承担所有可核对的数字与原始输出：端口、版本、显存、队列、commit、路径、日志。
+- **Segoe UI** 承担界面；中文回落到 Microsoft YaHei UI，这是语言决定的，不作为风格选择。
+- **Cascadia Mono / Consolas** 承担所有可核对的数字与原始输出：端口、版本、显存、队列、commit、路径、日志。
+- 外观 → 字体直接读取本机字体库，可分别选择英文、中文和等宽字体；不内置任何字体文件，默认 Segoe UI + Microsoft YaHei UI + Cascadia Mono。
 - 字号只有八阶：**10.5 / 11.5 / 13.5 / 15 / 16 / 17 / 22 / 26**。正文 13.5，面板标题 13.5，顶栏标题 15，弹层标题 16，键值 17，实例名 22，页面标题与指标数值 26，元信息 11.5，角标与微标签 10.5。
 - 页面标题用 -0.035em 的紧字距，实例名 -0.028em；**不加大字距的全大写 kicker**，标题自己承担层级。拉丁标签保留自然大小写（`NVIDIA`、`CUDA`、`torch`）。
 - 所有数字 `font-variant-numeric: tabular-nums`；轮询刷新时宽度不跳。最小正文 11.5px，只有键帽、时间戳和微标签用 10.5px。

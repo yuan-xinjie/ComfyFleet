@@ -1,4 +1,5 @@
 import Button from './Button'
+import IconTextButton from './IconTextButton'
 import { useMemo, useState } from 'react'
 import type { EnvReport, RepoWheel } from '../types'
 import Icon from './Icon'
@@ -227,14 +228,14 @@ export default function WheelPackageDialog({
         </div>
 
         <div className="modal-foot wheel-package-foot">
-          <Button
+          <IconTextButton
             variant="ghost"
             disabled={!selected || downloadingThis}
             onClick={() => selected && onDownload(selected)}
-          >
-            <Icon name="download" size={13} />
+           icon="download" iconSize={13}>
+            
             {downloadingThis ? '下载中…' : '下载到本地'}
-          </Button>
+          </IconTextButton>
           <div className="spacer" />
           <Button variant="ghost" onClick={onClose}>
             取消

@@ -21,12 +21,12 @@ pub const YAML_NAME: &str = "extra_model_paths.yaml";
 #[serde(rename_all = "camelCase")]
 pub struct DirEntry {
     pub path: String,
-    /// own = 实例自己 | extra = 实例附加 | shared = 全局共享
+    /// own = 实例自己 | extra = 实例附加 | shared = 全局共享 | launch = 启动参数
     pub source: String,
     pub exists: bool,
     /// 只有全局共享模型目录可能标默认。
     pub is_default: bool,
-    /// 整包 models 根目录 = None；只装某一类 = Some(类型)。
+    /// models 根目录 = None；只装某一类 = Some(类型，含自定义分类)。
     #[serde(rename = "type")]
     pub type_name: Option<String>,
 }
@@ -104,6 +104,42 @@ fn path_key(path: &str) -> String {
     path.trim().trim_end_matches(['\\', '/']).to_lowercase()
 }
 
+/// 启动参数里的 `--models-directory`：ComfyUI 真正用的模型根目录。
+/// 支持 `--models-directory D:\models` 和 `--models-directory=D:\models`；
+/// 多行自定义参数先拼成 argv，再按最后一次出现的值算。
+fn launch_models_dir(inst: &InstanceConfig) -> Option<String> {
+    let args: Vec<String> = inst
+        .server
+        .extra_args
+        .iter()
+        .flat_map(|line| crate::runtime::split_arg_line(line))
+        .collect();
+    let mut found = None;
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--models-directory" {
+            if let Some(value) = args.get(i + 1) {
+                let value = value.trim();
+                if !value.is_empty() && !value.starts_with("--") {
+                    found = Some(value.to_string());
+                }
+            }
+            i += 2;
+            continue;
+        }
+        if let Some(value) = arg
+            .strip_prefix("--models-directory=")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            found = Some(value.to_string());
+        }
+        i += 1;
+    }
+    found
+}
+
 pub(crate) fn shared_disabled(inst: &InstanceConfig, path: &str) -> bool {
     let key = path_key(path);
     inst.storage
@@ -132,8 +168,8 @@ fn type_entries(dir: &ModelDir, warnings: &mut Vec<String>) -> Vec<(String, Stri
     {
         return vec![(kind.to_string(), dir.path.trim().to_string())];
     }
-    // 「整 models 根目录」：把子目录名当作类型名。ComfyUI 自己会把 unet/clip
-    // 这类老名字映射过去，未知名字会被静默忽略，所以扫到什么写什么最稳。
+    // 「models 根目录」：把子目录名当作类型名。ComfyUI 自己会把 unet/clip
+    // 这类老名字映射过去；自定义分类不在这里展开，而是原样写成 yaml 的 key。
     let mut out = Vec::new();
     let mut names: Vec<String> = Vec::new();
     match std::fs::read_dir(base) {
@@ -311,6 +347,14 @@ pub fn plan(inst: &InstanceConfig, settings: &GlobalSettings) -> StoragePlan {
                 "全局共享模型目录被这个实例全部关掉了：只会用实例自己的 models 与附加目录。"
                     .to_string(),
             );
+        }
+    }
+
+    // 启动参数里的 --models-directory 也是实际生效的模型根目录：
+    // 只加进展示列表（yaml 由 ComfyUI 自己按这个参数找），并且按路径去重。
+    if let Some(path) = launch_models_dir(inst) {
+        if !models.iter().any(|m| path_key(&m.path) == path_key(&path)) {
+            models.push(DirEntry::new(path, "launch", false, None));
         }
     }
 
@@ -575,6 +619,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// 自定义分类不是白名单：yaml 的 key 原样写用户填的分类名。
+    #[test]
+    fn custom_type_is_written_as_key() {
+        let base = std::env::temp_dir().join("comfyfleet-storage-custom-type");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("nested")).unwrap();
+        let base_s = base.to_string_lossy().to_string();
+
+        let mut settings = GlobalSettings::default();
+        settings.storage.shared_models = vec![ModelDir {
+            path: base_s.clone(),
+            type_name: Some("custom_models".to_string()),
+            is_default: false,
+        }];
+
+        let plan = plan(&inst(), &settings);
+
+        assert!(
+            plan.yaml_text.contains("'custom_models':"),
+            "自定义分类要原样写进 yaml：{}",
+            plan.yaml_text
+        );
+        assert!(plan.yaml_text.contains(&base_s));
+        let shared = plan.shared_models.iter().find(|o| o.path == base_s).unwrap();
+        assert_eq!(shared.type_name.as_deref(), Some("custom_models"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     /// 指定了类型的共享目录：整段就是这一类的目录，不再去扫描它的子目录。
     #[test]
     fn typed_shared_dir_is_one_key() {
@@ -707,6 +780,30 @@ mod tests {
         assert_eq!(inst.storage.input.mode, "own");
         assert_eq!(inst.storage.output.mode, "own");
         assert!(inst.storage.extra_models.is_empty());
+    }
+
+    /// 启动参数里的 --models-directory 要出现在模型卡片里；支持带引号和 = 写法。
+    #[test]
+    fn launch_models_directory_is_listed() {
+        let mut inst = inst();
+        inst.server.extra_args =
+            vec!["--models-directory \"D:\\my models\" --models-directory=D:\\final".to_string()];
+        let mut settings = GlobalSettings::default();
+        settings.storage.shared_models.clear();
+
+        let plan = plan(&inst, &settings);
+
+        let launches: Vec<&DirEntry> = plan
+            .models
+            .iter()
+            .filter(|m| m.source == "launch")
+            .collect();
+        assert_eq!(launches.len(), 1, "只保留最后一次 --models-directory");
+        assert_eq!(launches[0].path, "D:\\final");
+        assert!(
+            !plan.yaml_text.contains("D:\\final"),
+            "目录由启动参数传给 ComfyUI，不重复写进 yaml"
+        );
     }
 
     /// 只有模型目录会被写进 yaml；输 输出靠命令行参数

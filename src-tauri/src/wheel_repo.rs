@@ -7,7 +7,7 @@
 //!   不重复查询仓库。
 
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -492,8 +492,23 @@ fn download_file_name(name: &str) -> Result<&str, AppError> {
     Ok(name)
 }
 
-fn http_download(url: &str, dest: &Path) -> Result<(), AppError> {
+fn http_download(url: &str, dest: &Path, expected_sha256: &str) -> Result<(), AppError> {
+    if !url.starts_with("https://") {
+        return Err(AppError::new(
+            "WHEEL_REPO_INSECURE",
+            "轮子仓库下载地址必须是 HTTPS",
+        ));
+    }
+    let expected_sha256 = expected_sha256.trim();
+    if expected_sha256.len() != 64 || !expected_sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(AppError::new(
+            "WHEEL_REPO_HASH",
+            "仓库返回的 SHA-256 格式不合法",
+        ));
+    }
     let agent = ureq::AgentBuilder::new()
+        // ModelScope 的 resolve 地址会 302 到 CDN；跟随但要求最终地址仍是 HTTPS。
+        .redirects(5)
         .timeout_connect(Duration::from_secs(20))
         .timeout(Duration::from_secs(1800))
         .user_agent(UA)
@@ -504,6 +519,12 @@ fn http_download(url: &str, dest: &Path) -> Result<(), AppError> {
         }
         other => AppError::new("WHEEL_REPO_HTTP", format!("下载轮子失败：{other}")),
     })?;
+    if !resp.get_url().starts_with("https://") {
+        return Err(AppError::new(
+            "WHEEL_REPO_INSECURE",
+            "轮子下载被重定向到非 HTTPS 地址，已中止",
+        ));
+    }
     let part = dest.with_extension("whl.part");
     let mut file = std::fs::File::create(&part).map_err(|e| {
         AppError::new(
@@ -511,15 +532,32 @@ fn http_download(url: &str, dest: &Path) -> Result<(), AppError> {
             format!("创建下载文件失败（{}）：{e}", part.display()),
         )
     })?;
-    let copied = std::io::copy(&mut resp.into_reader(), &mut file).map_err(|e| {
-        let _ = std::fs::remove_file(&part);
-        AppError::new("WHEEL_REPO_DOWNLOAD", format!("下载轮子失败：{e}"))
-    })?;
+    const MAX_WHEEL_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+    let copied = std::io::copy(&mut resp.into_reader().take(MAX_WHEEL_BYTES + 1), &mut file)
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&part);
+            AppError::new("WHEEL_REPO_DOWNLOAD", format!("下载轮子失败：{e}"))
+        })?;
     file.flush().ok();
     drop(file);
     if copied == 0 {
         let _ = std::fs::remove_file(&part);
         return Err(AppError::new("WHEEL_REPO_DOWNLOAD", "下载到的文件是空的"));
+    }
+    if copied > MAX_WHEEL_BYTES {
+        let _ = std::fs::remove_file(&part);
+        return Err(AppError::new(
+            "WHEEL_REPO_DOWNLOAD",
+            "轮子超过 8 GiB，已中止",
+        ));
+    }
+    let actual = crate::sync::sha256_file(&part)?;
+    if !actual.eq_ignore_ascii_case(expected_sha256) {
+        let _ = std::fs::remove_file(&part);
+        return Err(AppError::new(
+            "WHEEL_REPO_HASH",
+            format!("轮子 SHA-256 校验失败（期望 {expected_sha256}，实际 {actual}）"),
+        ));
     }
     // 文件名必须保持原样，所以同名文件只能覆盖；先删旧文件，Windows 的 rename 不会自动覆盖。
     if dest.exists() {
@@ -579,6 +617,13 @@ pub fn download(repo_url: Option<&str>, path: &str, dest_dir: &str) -> Result<St
             )
         })?;
     let name = download_file_name(&wheel.name)?;
+    let sha256 = wheel.sha256.trim().to_string();
+    if sha256.is_empty() {
+        return Err(AppError::new(
+            "WHEEL_REPO_HASH_MISSING",
+            "仓库没有提供这个 wheel 的 SHA-256，拒绝下载",
+        ));
+    }
     let dir = PathBuf::from(dest_dir);
     std::fs::create_dir_all(&dir).map_err(|e| {
         AppError::new(
@@ -587,7 +632,7 @@ pub fn download(repo_url: Option<&str>, path: &str, dest_dir: &str) -> Result<St
         )
     })?;
     let dest = dir.join(name);
-    http_download(&wheel.url, &dest)?;
+    http_download(&wheel.url, &dest, &sha256)?;
     Ok(dest.to_string_lossy().to_string())
 }
 
@@ -632,9 +677,17 @@ pub fn install(
         wheel.group.clone()
     };
     let pypi = wheel_distribution(&wheel.name);
+    // ModelScope 的文件列表带 SHA-256；没有哈希就不安装，避免供应链内容被替换。
+    let sha256 = wheel.sha256.trim().to_string();
+    if sha256.is_empty() {
+        return Err(AppError::new(
+            "WHEEL_HASH_MISSING",
+            "仓库没有提供这个 wheel 的 SHA-256，拒绝安装",
+        ));
+    }
     drop(_guard);
 
-    accel::install_wheel(inst, &name, &pypi, &wheel.url, settings, on)?;
+    accel::install_wheel(inst, &name, &pypi, &wheel.url, Some(&sha256), settings, on)?;
     let py = runtime::resolve_python(inst).ok_or_else(|| {
         AppError::new("NO_PYTHON", "安装完成但没能重新找到这个实例的 Python 环境")
     })?;

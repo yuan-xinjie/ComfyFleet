@@ -1,8 +1,14 @@
 import { Checkbox, DirectoryInput } from '../components/Form'
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, errText } from '../lib/api'
-import { DIR_MODE_LABEL, SOURCE_LABEL, modelTypeLabel } from '../lib/storage'
+import {
+  DIR_MODE_LABEL,
+  MODEL_SOURCE_LABEL,
+  SOURCE_LABEL,
+  modelTypeLabel,
+} from '../lib/storage'
 import type { DirChoice, InstanceConfig, InstanceStorage, StoragePlan } from '../types'
 import { useTabSave, type TabSaveHandle } from '../lib/useTabSave'
 import Icon from '../components/Icon'
@@ -183,9 +189,10 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
     if (baselineRef.current === storageKey) return
     const wasClean = formRef.current === baselineRef.current
     baselineRef.current = storageKey
+    // 有草稿时也要把基线换成新配置：否则“放弃”会退回到已经不存在的旧配置。
+    setBaseline(inst.storage)
     if (!wasClean) return
     setForm(inst.storage)
-    setBaseline(inst.storage)
     void loadPlan(inst.storage)
   }, [inst.storage, loadPlan, storageKey])
 
@@ -244,7 +251,7 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
               onChange={(e) => setForm({ ...form, useSharedModels: e.target.checked })}
             />
             <span>
-              使用全局共享模型目录
+              使用共享模型目录
               <span className="hint">
                 {sharedOn.length > 0
                   ? `已挂上 ${sharedOn.length} 个`
@@ -277,7 +284,7 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
                     {opt.type ? (
                       <span className="badge ghost">{modelTypeLabel(opt.type)}</span>
                     ) : (
-                      <span className="badge ghost">整包 models</span>
+                      <span className="badge ghost">models 根目录</span>
                     )}
                     {opt.isDefault && <span className="badge warn">下载落点</span>}
                     {!opt.exists && <span className="badge danger">不存在</span>}
@@ -330,14 +337,14 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
         <div className="panel-head">
           <h2>启动时实际生效</h2>
           <div className="spacer" />
-          <Button
+          <IconTextButton
             className="ghost sm"
             onClick={() => void loadPlan(form)}
             title="按当前草稿重新计算"
-          >
-            <Icon name="refresh" size={13} />
+           icon="refresh" iconSize={13}>
+            
             刷新
-          </Button>
+          </IconTextButton>
         </div>
         <div className="panel-body">
           {plan ? (
@@ -346,7 +353,7 @@ export default function InstanceStorageView({ inst, notify, onSaved, onSaveState
                 {plan.models.map((dir, index) => (
                   <EffectiveRow
                     key={`${dir.path}-${index}`}
-                    label={`${SOURCE_LABEL[dir.source] ?? dir.source}${
+                    label={`${MODEL_SOURCE_LABEL[dir.source] ?? dir.source}${
                       dir.type ? `（${dir.type}）` : ''
                     }`}
                     path={dir.path}

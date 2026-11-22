@@ -1,24 +1,37 @@
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import Checkbox from '../components/Checkbox'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { api, errText } from '../lib/api'
 import type {
   InstanceConfig,
   ModelCopyResult,
+  ModelEntry,
   ModelListing,
   ModelOpResult,
   StorageDir,
   StoragePlan,
 } from '../types'
 import Icon from '../components/Icon'
+import type { IconName } from '../components/Icon'
 import Select from '../components/Select'
 
 const SOURCE_LABEL: Record<string, string> = {
-  own: '实例',
-  extra: '附加',
-  shared: '共享',
+  own: '实例目录',
+  extra: '实例附加',
+  shared: '共享目录',
+  launch: '启动参数',
 }
 
 type ClipMode = 'copy' | 'cut'
@@ -30,17 +43,40 @@ interface ModelClipboard {
   names: string[]
 }
 
-function baseName(path: string): string {
-  const parts = path.trim().replace(/[\\/]+$/, '').split(/[\\/]/)
-  return parts[parts.length - 1] || path
+function pathSegments(path: string): string[] {
+  return path
+    .trim()
+    .replace(/[\\/]+$/, '')
+    .split(/[\\/]+/)
+    .filter(Boolean)
 }
 
-function rootLabel(dir: StorageDir): string {
-  const kind = SOURCE_LABEL[dir.source] ?? '模型'
-  const base = baseName(dir.path)
-  const type = dir.type?.trim()
-  if (type && type.toLowerCase() !== base.toLowerCase()) return `${kind} · ${type}`
-  return `${kind} · ${base}`
+/**
+ * 目录同名时用尽量短的后缀区分，例如两个 models 显示为
+ * 「D:\models」和「Comfyui模型\models」；后缀仍相同就继续加一段。
+ */
+function rootShortName(dir: StorageDir, roots: StorageDir[]): string {
+  const segments = pathSegments(dir.path)
+  const base = segments[segments.length - 1] ?? dir.path
+  const sameBase = roots.filter((other) => {
+    const otherSegments = pathSegments(other.path)
+    return (otherSegments[otherSegments.length - 1] ?? other.path).toLowerCase() === base.toLowerCase()
+  })
+  if (sameBase.length <= 1) return base
+  for (let count = 2; count <= segments.length; count += 1) {
+    const suffix = segments.slice(-count).join('\\').toLowerCase()
+    const unique = sameBase.every((other) => {
+      if (other.path === dir.path) return true
+      const otherSegments = pathSegments(other.path)
+      return otherSegments.slice(-count).join('\\').toLowerCase() !== suffix
+    })
+    if (unique) return segments.slice(-count).join('\\')
+  }
+  return dir.path
+}
+
+function rootSource(dir: StorageDir): string {
+  return SOURCE_LABEL[dir.source] ?? '模型'
 }
 
 function pickDefault(models: StorageDir[]): string | null {
@@ -74,6 +110,50 @@ function fmtDate(ms: number | null): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function joinWindowsPath(base: string, name: string): string {
+  return `${base.replace(/[\\/]+$/, '')}\\${name}`
+}
+
+function scrollKeyFor(root: string | null, segments: string[]): string {
+  return `${root ?? ''}\u0000${segments.join('\u0000')}`
+}
+
+interface ContextMenuState {
+  x: number
+  y: number
+  entry: ModelEntry | null
+  targets: string[]
+}
+
+type DirMotion = 'forward' | 'back' | 'none'
+
+function ModelMenuItem({
+  icon,
+  label,
+  onClick,
+  disabled = false,
+  danger = false,
+}: {
+  icon: IconName
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  danger?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className={`model-menu-item${danger ? ' is-danger' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon name={icon} size={13} />
+      <span>{label}</span>
+    </button>
+  )
+}
+
 interface Props {
   inst: InstanceConfig
   /** 概览页在前台时才拉目录；切走再回来会刷新 */
@@ -105,8 +185,15 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null)
   const [opBusy, setOpBusy] = useState(false)
   const [opLabel, setOpLabel] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [listingKey, setListingKey] = useState<string | null>(null)
+  const [dirMotion, setDirMotion] = useState<DirMotion>('none')
   const cardRef = useRef<HTMLElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef(0)
+  const scrollRef = useRef(new Map<string, number>())
+  const restoredKeyRef = useRef<string | null>(null)
   const stateRef = useRef({ root, segments, active, busy: false })
   stateRef.current = {
     root,
@@ -118,6 +205,7 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
 
   const storageKey = useMemo(() => JSON.stringify(inst.storage), [inst.storage])
   const dirRel = segments.join('/')
+  const scrollKey = scrollKeyFor(root, segments)
   const busy = copying || loadingDir || opBusy
 
   const loadDir = useCallback(
@@ -128,10 +216,12 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
         const next = await api.modelsList(inst.id, selectedRoot, segs.join('/'))
         if (token !== requestRef.current) return
         setListing(next)
+        setListingKey(scrollKeyFor(selectedRoot, segs))
         setError(null)
       } catch (e) {
         if (token !== requestRef.current) return
         setListing(null)
+        setListingKey(null)
         setError(errText(e))
       } finally {
         if (token === requestRef.current) setLoadingDir(false)
@@ -176,6 +266,50 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     void loadDir(root, segments)
   }, [active, root, segments, plan, loadDir])
 
+  // 返回上一级时把离开前的滚动位置放回去；同一目录刷新时保留当前滚动。
+  useLayoutEffect(() => {
+    if (!listing || !listRef.current || listingKey !== scrollKey) return
+    if (restoredKeyRef.current === scrollKey) return
+    restoredKeyRef.current = scrollKey
+    listRef.current.scrollTop = scrollRef.current.get(scrollKey) ?? 0
+  }, [listing, listingKey, scrollKey])
+
+  // 右键菜单：点空白处、Esc、窗口失焦或尺寸变化都收起。
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    const onPointerDown = (event: PointerEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      close()
+    }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('blur', close)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', close)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [contextMenu])
+
+  // 菜单贴近视口边缘时先量一次实际尺寸，再夹回可视区。
+  useLayoutEffect(() => {
+    if (!contextMenu || !menuRef.current) return
+    const rect = menuRef.current.getBoundingClientRect()
+    const x = Math.max(8, Math.min(contextMenu.x, window.innerWidth - rect.width - 8))
+    const y = Math.max(8, Math.min(contextMenu.y, window.innerHeight - rect.height - 8))
+    if (x !== contextMenu.x || y !== contextMenu.y) {
+      setContextMenu((prev) => (prev ? { ...prev, x, y } : prev))
+    }
+  }, [contextMenu])
+
   // 换目录时清掉临时状态，避免重命名/删除确认跑到别的目录里。
   useEffect(() => {
     setSelected(new Set())
@@ -198,8 +332,18 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     setReloadTick((v) => v + 1)
   }
 
+  const saveScroll = () => {
+    const el = listRef.current
+    if (el) scrollRef.current.set(scrollKey, el.scrollTop)
+  }
+
   const goTo = (next: string[]) => {
+    saveScroll()
+    setContextMenu(null)
     setCopyError(null)
+    setDirMotion(
+      next.length > segments.length ? 'forward' : next.length < segments.length ? 'back' : 'none',
+    )
     setSegments(next)
   }
 
@@ -318,18 +462,18 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
 
   const roots = plan?.models ?? []
   const selectedRoot = roots.find((m) => m.path === root) ?? null
+  // trigger 直接显示完整路径，让宽度跟着路径字符数变化；超出可用空间时省略。
   const rootOptions = roots.map((m) => {
-    const label = rootLabel(m)
-    const duplicate = roots.filter((other) => rootLabel(other) === label).length > 1
+    const short = `${rootSource(m)} · ${rootShortName(m, roots)}`
     return {
       value: m.path,
-      label,
-      meta: duplicate ? m.path : undefined,
+      label: short,
+      trigger: m.path,
       badge: m.isDefault ? '默认' : m.exists ? undefined : '不存在',
       badgeTone: m.exists ? ('muted' as const) : ('warn' as const),
     }
   })
-  const currentLabel = selectedRoot ? (SOURCE_LABEL[selectedRoot.source] ?? '模型') : '模型'
+  const currentLabel = selectedRoot ? selectedRoot.path : '模型'
   const selectedNames = [...selected]
   const selectedCount = selectedNames.length
   const selectedOne = selectedCount === 1 ? selectedNames[0] : null
@@ -337,6 +481,24 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     clipboard?.mode === 'cut' && clipboard.root === root && clipboard.rel === dirRel
       ? new Set(clipboard.names)
       : null
+
+  const openContextMenu = (event: ReactMouseEvent, entry: ModelEntry | null) => {
+    const origin = event.target as HTMLElement | null
+    if (origin?.closest('textarea, input:not([type="checkbox"]):not([type="radio"])')) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    if (!root || busy) return
+    if (!entry) {
+      setSelected(new Set())
+      setContextMenu({ x: event.clientX, y: event.clientY, entry: null, targets: [] })
+      return
+    }
+    const targets = selected.has(entry.name) ? selectedNames : [entry.name]
+    if (!selected.has(entry.name)) setSelected(new Set([entry.name]))
+    setContextMenu({ x: event.clientX, y: event.clientY, entry, targets })
+  }
 
   const openCurrent = () => {
     if (!listing?.path) return
@@ -352,9 +514,9 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     })
   }
 
-  const stageClipboard = (mode: ClipMode) => {
-    if (!root || selectedCount === 0) return
-    setClipboard({ mode, root, rel: dirRel, names: selectedNames })
+  const stageClipboard = (mode: ClipMode, names: string[] = selectedNames) => {
+    if (!root || names.length === 0) return
+    setClipboard({ mode, root, rel: dirRel, names })
     setSelected(new Set())
     setRenaming(null)
     setCreating(null)
@@ -390,11 +552,11 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     }
   }
 
-  const beginRename = () => {
-    if (!selectedOne) return
+  const beginRename = (name: string | null = selectedOne) => {
+    if (!name) return
     setCreating(null)
     setConfirmDelete(null)
-    setRenaming({ name: selectedOne, value: selectedOne })
+    setRenaming({ name, value: name })
   }
 
   const commitRename = async () => {
@@ -456,11 +618,11 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     }
   }
 
-  const armDelete = () => {
-    if (selectedCount === 0) return
+  const armDelete = (names: string[] = selectedNames) => {
+    if (names.length === 0) return
     setRenaming(null)
     setCreating(null)
-    setConfirmDelete(selectedNames)
+    setConfirmDelete(names)
   }
 
   const deleteSelected = async () => {
@@ -526,10 +688,84 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     }
   }
 
+  // Backspace 不依赖某个按钮保持焦点：在模型卡内、或焦点已经回到 body 时都返回上一级。
+  useEffect(() => {
+    if (!active) return
+    const onBackspace = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Backspace' || event.defaultPrevented) return
+      if (document.querySelector('.model-menu')) return
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (target?.closest('textarea, select, [contenteditable="true"]')) return
+      if (
+        target instanceof HTMLInputElement &&
+        !['checkbox', 'radio', 'button', 'submit'].includes(target.type)
+      ) {
+        return
+      }
+      if (document.querySelector('.modal-backdrop')) return
+      const el = document.activeElement
+      const owns = !!el && !!cardRef.current?.contains(el)
+      const idle = !el || el === document.body
+      if (!owns && !idle) return
+      // 根目录也吃掉 Backspace，避免 WebView 把它当成浏览器后退。
+      event.preventDefault()
+      if (busy || segments.length === 0) return
+      goTo(segments.slice(0, -1))
+    }
+    window.addEventListener('keydown', onBackspace)
+    return () => window.removeEventListener('keydown', onBackspace)
+  }, [active, busy, goTo, segments])
+
   const deletingHasDir =
     confirmDelete?.some(
       (name) => listing?.entries.find((entry) => entry.name === name)?.isDir,
     ) ?? false
+
+  const menuEntry = contextMenu?.entry ?? null
+  const menuTargets = contextMenu?.targets ?? []
+  const menuCount = menuTargets.length
+
+  const openMenuEntry = () => {
+    if (!menuEntry?.isDir) return
+    setContextMenu(null)
+    goTo([...segments, menuEntry.name])
+  }
+
+  const revealMenuEntry = () => {
+    if (!menuEntry || !listing?.path) return
+    setContextMenu(null)
+    void api
+      .openPath(joinWindowsPath(listing.path, menuEntry.name))
+      .catch((e) => notify('err', errText(e)))
+  }
+
+  const copyMenuPath = () => {
+    if (!menuEntry || !listing?.path) return
+    setContextMenu(null)
+    const clip = navigator.clipboard
+    if (!clip) {
+      notify('err', '当前环境不能写剪贴板')
+      return
+    }
+    void clip
+      .writeText(joinWindowsPath(listing.path, menuEntry.name))
+      .then(() => notify('ok', '路径已复制'))
+      .catch((e) => notify('err', errText(e)))
+  }
+
+  const renameFromMenu = () => {
+    if (menuCount !== 1) return
+    setContextMenu(null)
+    setSelected(new Set(menuTargets))
+    beginRename(menuTargets[0])
+  }
+
+  const deleteFromMenu = () => {
+    if (menuCount === 0) return
+    setContextMenu(null)
+    setSelected(new Set(menuTargets))
+    armDelete(menuTargets)
+  }
 
   return (
     <section
@@ -540,26 +776,30 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     >
       <div className="panel-head ov-models-head">
         <h2 id="ov-models-title">模型</h2>
-        <div className="spacer" />
         {roots.length > 1 ? (
-          <div className="model-root-select">
-            <Select
-              value={root ?? ''}
-              options={rootOptions}
-              onChange={(value) => {
-                setRoot(value)
-                setSegments([])
-                setCopyError(null)
-              }}
-              ariaLabel="选择模型目录"
-              disabled={busy || loadingPlan}
-            />
-          </div>
+          <Select
+            value={root ?? ''}
+            options={rootOptions}
+            onChange={(value) => {
+              saveScroll()
+              setRoot(value)
+              setSegments([])
+              setCopyError(null)
+              setDirMotion('none')
+            }}
+            ariaLabel="选择模型目录"
+            disabled={busy || loadingPlan}
+            className="model-root-select"
+            menuClassName="model-root-menu"
+            compactMenu
+            triggerTitle={selectedRoot?.path}
+          />
         ) : selectedRoot ? (
           <span className="model-root-label" title={selectedRoot.path}>
-            {rootLabel(selectedRoot)}
+            {selectedRoot.path}
           </span>
         ) : null}
+        <div className="spacer" />
         <Button
           type="button"
           className={`icon-btn${loadingPlan || loadingDir ? ' is-busy' : ''}`}
@@ -584,18 +824,6 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
 
       {roots.length > 0 && (
         <div className="model-crumbs">
-          {segments.length > 0 && (
-            <Button
-              type="button"
-              className="icon-btn model-up"
-              onClick={() => goTo(segments.slice(0, -1))}
-              title="上一级"
-              aria-label="上一级"
-              disabled={busy}
-            >
-              <Icon name="back" size={13} />
-            </Button>
-          )}
           <Button
             type="button"
             className="model-crumb"
@@ -608,7 +836,7 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
           {segments.map((seg, index) => (
             <Fragment key={`${index}:${seg}`}>
               <span className="model-crumb-sep" aria-hidden="true">
-                /
+                {'\\'}
               </span>
               <Button
                 type="button"
@@ -631,17 +859,17 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
                     : ''}
               </span>
               {clipboard && (
-                <Button
+                <IconTextButton
                   type="button"
                   className={`ghost sm model-paste${clipboard.mode === 'cut' ? ' is-cut' : ''}`}
                   onClick={() => void pasteClipboard()}
                   title={clipboard.mode === 'cut' ? '粘贴并移动' : '粘贴'}
                   aria-label={clipboard.mode === 'cut' ? '粘贴并移动' : '粘贴'}
                   disabled={busy}
-                >
-                  <Icon name="paste" size={13} />
+                 icon="paste" iconSize={13}>
+                  
                   粘贴
-                </Button>
+                </IconTextButton>
               )}
               {selectedCount > 0 && (
                 <>
@@ -668,7 +896,7 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
                   <Button
                     type="button"
                     className="icon-btn model-op"
-                    onClick={beginRename}
+                    onClick={() => beginRename()}
                     title="重命名"
                     aria-label="重命名"
                     disabled={busy || !selectedOne}
@@ -678,7 +906,7 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
                   <Button
                     type="button"
                     className="icon-btn model-op danger"
-                    onClick={armDelete}
+                    onClick={() => armDelete()}
                     title="删除"
                     aria-label="删除"
                     disabled={busy}
@@ -703,7 +931,11 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
         </div>
       )}
 
-      <div className="ov-models-body">
+      <div
+        className="ov-models-body"
+        onContextMenu={(event) => openContextMenu(event, null)}
+      >
+        {loadingDir && <div className="model-progress" aria-hidden="true" />}
         {copyError && (
           <div className="model-copy-error" role="alert">
             <span>{copyError}</span>
@@ -749,7 +981,19 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
             <span className="ov-models-label">空目录</span>
           </div>
         ) : (
-          <div className="model-list" aria-busy={busy}>
+          <div
+            key={listingKey ?? 'empty'}
+            className={`model-list${loadingDir ? ' is-loading' : ''}${
+              !loadingDir && listingKey === scrollKey && dirMotion !== 'none'
+                ? ` is-nav-${dirMotion}`
+                : ''
+            }`}
+            aria-busy={busy}
+            ref={listRef}
+            onAnimationEnd={(event) => {
+              if (event.target === event.currentTarget) setDirMotion('none')
+            }}
+          >
             {creating !== null && (
               <div className="model-row model-new-row">
                 <span className="model-row-icon is-dir" aria-hidden="true">
@@ -786,6 +1030,7 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
                     selected.has(entry.name) ? ' is-selected' : ''
                   }${isCut ? ' is-cut' : ''}`}
                   key={`${entry.isDir ? 'd' : 'f'}:${entry.name}`}
+                  onContextMenu={(event) => openContextMenu(event, entry)}
                 >
                   <Checkbox
                     className="model-row-check"
@@ -912,6 +1157,107 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
           </div>
         )}
       </div>
+
+      {contextMenu &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="model-menu"
+            role="menu"
+            aria-label="模型文件操作"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            {menuEntry ? (
+              <>
+                {menuEntry.isDir && (
+                  <>
+                    <ModelMenuItem icon="folder" label="打开" onClick={openMenuEntry} />
+                    <ModelMenuItem
+                      icon="folder"
+                      label="在资源管理器中打开"
+                      onClick={revealMenuEntry}
+                    />
+                    <div className="model-menu-sep" role="separator" />
+                  </>
+                )}
+                <ModelMenuItem
+                  icon="copy"
+                  label={menuCount > 1 ? `复制 ${menuCount} 项` : '复制'}
+                  onClick={() => {
+                    setContextMenu(null)
+                    stageClipboard('copy', menuTargets)
+                  }}
+                />
+                <ModelMenuItem
+                  icon="cut"
+                  label={menuCount > 1 ? `剪切 ${menuCount} 项` : '剪切'}
+                  onClick={() => {
+                    setContextMenu(null)
+                    stageClipboard('cut', menuTargets)
+                  }}
+                />
+                <ModelMenuItem
+                  icon="edit"
+                  label="重命名"
+                  onClick={renameFromMenu}
+                  disabled={menuCount !== 1}
+                />
+                <ModelMenuItem
+                  icon="link"
+                  label="复制路径"
+                  onClick={copyMenuPath}
+                />
+                <div className="model-menu-sep" role="separator" />
+                <ModelMenuItem
+                  icon="trash"
+                  label={menuCount > 1 ? `删除 ${menuCount} 项` : '删除'}
+                  onClick={deleteFromMenu}
+                  danger
+                />
+              </>
+            ) : (
+              <>
+                <ModelMenuItem
+                  icon="plus"
+                  label="新建文件夹"
+                  onClick={() => {
+                    setContextMenu(null)
+                    beginCreate()
+                  }}
+                />
+                <ModelMenuItem
+                  icon="paste"
+                  label="粘贴"
+                  onClick={() => {
+                    setContextMenu(null)
+                    void pasteClipboard()
+                  }}
+                  disabled={!clipboard}
+                />
+                <div className="model-menu-sep" role="separator" />
+                <ModelMenuItem
+                  icon="refresh"
+                  label="刷新"
+                  onClick={() => {
+                    setContextMenu(null)
+                    refresh()
+                  }}
+                />
+                <ModelMenuItem
+                  icon="folder"
+                  label="在资源管理器中打开"
+                  onClick={() => {
+                    setContextMenu(null)
+                    openCurrent()
+                  }}
+                  disabled={!listing?.exists}
+                />
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
     </section>
   )
 }

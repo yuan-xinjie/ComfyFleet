@@ -72,6 +72,15 @@ pub struct InstanceLogEvent {
     pub line: String,
 }
 
+/// Python 进度桥的一次完整快照。每次都带全量 bars，前端直接替换即可。
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceProgressEvent {
+    pub instance_id: String,
+    pub rev: u64,
+    pub progress: Vec<crate::progress::PythonProgress>,
+}
+
 #[tauri::command]
 pub async fn instance_start(
     app: tauri::AppHandle,
@@ -235,19 +244,52 @@ fn launch_instance_locked(
     for warning in &storage_plan.warnings {
         log::warn!("instance {} storage: {}", inst.id, warning);
     }
-    let args = runtime::launch_args_with(&inst, &storage_plan.extra_args);
+    let mut args = runtime::launch_args_with(&inst, &storage_plan.extra_args);
+    let mut env = runtime::build_env(&inst, &settings, &py);
+
+    // Python 启动壳：实例仍然执行 ComfyUI/main.py，但先经过 ComfyFleet 的 bridge。
+    // 失败只影响进度条增强，不影响 ComfyUI 启动，所以这里降级而不是中断。
+    match crate::pybridge::ensure_installed() {
+        Ok(launch_py) => {
+            let mut wrapped = Vec::with_capacity(args.len() + 1);
+            wrapped.push(launch_py.to_string_lossy().to_string());
+            wrapped.extend(args);
+            args = wrapped;
+            env.insert("COMFYFLEET_PY_PROGRESS".to_string(), "1".to_string());
+        }
+        Err(e) => {
+            log::warn!(
+                "instance {} 的 Python 进度桥不可用，回退到日志解析：{}",
+                inst.id,
+                e.message
+            );
+        }
+    }
+
     let python = py.python.clone();
     let launch = runtime::Launch {
         python: python.clone(),
         cwd: comfy,
         args: args.clone(),
-        env: runtime::build_env(&inst, &settings, &py),
+        env,
         log_path: log_path.clone(),
         port,
     };
 
     let log_app = app.clone();
     let log_instance = inst.id.clone();
+    let progress_app = app.clone();
+    let progress_instance = inst.id.clone();
+    let progress_sink: runtime::ProgressSink = Arc::new(move |snapshot| {
+        let _ = progress_app.emit(
+            "instance-progress",
+            InstanceProgressEvent {
+                instance_id: progress_instance.clone(),
+                rev: snapshot.rev,
+                progress: snapshot.progress.clone(),
+            },
+        );
+    });
     let handle = runtime::spawn_with_sink(
         launch,
         Arc::new(move |line, seq| {
@@ -260,6 +302,7 @@ fn launch_instance_locked(
                 },
             );
         }),
+        Some(progress_sink),
     )?;
     // 记下「本次会话启动过」：之后停了还读日志文件，但重开启动器不会显示上次的旧日志
     state.log_sessions.lock().insert(inst.id.clone());
@@ -756,7 +799,7 @@ pub(crate) fn stop_instance_unlocked(state: &AppState, instance_id: &str) -> Res
                 instance_id,
                 "stop",
                 "ok",
-                "stopped instance",
+                "停止实例",
                 Some(format!("pid {}", h.pid)),
             );
             Ok(())
@@ -769,11 +812,11 @@ pub(crate) fn stop_instance_unlocked(state: &AppState, instance_id: &str) -> Res
     }
 }
 
-/// 读取实例最新日志的尾部（最多 limit 行）。
-fn read_latest_log(instance_id: &str, limit: usize) -> Result<Vec<String>, AppError> {
+/// 最新一轮运行的日志文件；运行中就是当前文件，停止后是最后一轮。
+fn latest_log_path(instance_id: &str) -> Result<Option<std::path::PathBuf>, AppError> {
     let inst = load_instance(instance_id)?;
     let dir = std::path::PathBuf::from(&inst.root_dir).join("logs");
-    let newest = std::fs::read_dir(&dir)
+    Ok(std::fs::read_dir(&dir)
         .into_iter()
         .flatten()
         .flatten()
@@ -783,8 +826,12 @@ fn read_latest_log(instance_id: &str, limit: usize) -> Result<Vec<String>, AppEr
             Some((meta.modified().ok()?, e.path()))
         })
         .max_by_key(|(t, _)| *t)
-        .map(|(_, p)| p);
-    let Some(path) = newest else {
+        .map(|(_, p)| p))
+}
+
+/// 读取实例最新日志的尾部（最多 limit 行）。
+fn read_latest_log(instance_id: &str, limit: usize) -> Result<Vec<String>, AppError> {
+    let Some(path) = latest_log_path(instance_id)? else {
         return Ok(Vec::new());
     };
     // 只读文件尾部，不能把几 GB 的日志整个读进内存。
@@ -864,6 +911,32 @@ fn instance_log_state_impl(
     })
 }
 
+/// 当前实例的结构化进度快照。用户打开控制台/灵动岛时先取一次。
+#[tauri::command]
+pub fn instance_progress_state(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> crate::progress::ProgressSnapshot {
+    state
+        .runs
+        .lock()
+        .get(&instance_id)
+        .map(|h| h.progress_snapshot())
+        .unwrap_or_default()
+}
+
+/// 用记事本打开最近一轮完整日志。浮层只保留尾部，完整内容在磁盘上。
+#[tauri::command]
+pub fn instance_open_log(instance_id: String) -> Result<(), AppError> {
+    let path = latest_log_path(&instance_id)?
+        .ok_or_else(|| AppError::new("LOG_NOT_FOUND", "还没有日志文件"))?;
+    std::process::Command::new("notepad.exe")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| AppError::new("LOG_OPEN_FAILED", format!("打开日志失败：{e}")))?;
+    Ok(())
+}
+
 /// 所有运行中实例的显存/队列情况，供前端轮询。
 #[tauri::command]
 pub async fn instance_health(
@@ -939,10 +1012,7 @@ pub fn shutdown_all(app: &AppHandle) {
             log::info!("shutdown: stopping instance {} (pid {})", id, h.pid);
             match h.kill_tree() {
                 Ok(()) => set_state(&id, InstanceState::Stopped, None),
-                Err(e) => set_error_state(
-                    &id,
-                    format!("应用退出时停止实例失败：{}", e.message),
-                ),
+                Err(e) => set_error_state(&id, format!("应用退出时停止实例失败：{}", e.message)),
             }
             runtime::remove_record(&crate::config::instances_dir().join(&id));
         }
@@ -993,8 +1063,10 @@ pub fn recover_orphans() {
                     InstanceState::Installing | InstanceState::Updating => {
                         // 上次安装/更新被强杀：venv 可能半写，不能谎报 Ready/Stopped。
                         cfg.state = InstanceState::Error;
-                        cfg.last_error =
-                            Some("上次安装或更新没有完成，环境可能只写了一半。请重新安装环境。".to_string());
+                        cfg.last_error = Some(
+                            "上次安装或更新没有完成，环境可能只写了一半。请重新安装环境。"
+                                .to_string(),
+                        );
                         let _ = save_instance(&cfg);
                         log::warn!("实例{id} 上次安装/更新中断，已标记 Error");
                     }
@@ -1030,8 +1102,9 @@ pub fn recover_orphans() {
             ) {
                 // 安装时被强杀，文件可能不完整；保留可重试的错误态，而不是伪装成 stopped。
                 cfg.state = InstanceState::Error;
-                cfg.last_error =
-                    Some("上次安装或更新没有完成，环境可能只写了一半。请重新安装环境。".to_string());
+                cfg.last_error = Some(
+                    "上次安装或更新没有完成，环境可能只写了一半。请重新安装环境。".to_string(),
+                );
             } else {
                 cfg.state = InstanceState::Stopped;
                 cfg.last_error = None;

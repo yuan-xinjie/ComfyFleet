@@ -1,4 +1,5 @@
 import Button from './components/Button'
+import IconTextButton from './components/IconTextButton'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, errText } from './lib/api'
 import type {
@@ -26,6 +27,7 @@ import {
   useTask,
   type BackgroundTask,
 } from './components/BackgroundTasks'
+import InstanceDownloadTasks from './components/InstanceDownloadTasks'
 import SettingsView, { type SettingsActions, type SettingsSection } from './views/Settings'
 import Icon from './components/Icon'
 import {
@@ -292,6 +294,13 @@ export default function App() {
     api.envPlan().then(setPlan).catch(() => {})
   }, [notify])
 
+  // 这是桌面应用，右键菜单没有可用项；全局关掉，避免在终端/标题栏/按钮上误弹。
+  useEffect(() => {
+    const block = (event: MouseEvent) => event.preventDefault()
+    document.addEventListener('contextmenu', block, true)
+    return () => document.removeEventListener('contextmenu', block, true)
+  }, [])
+
   // 主题在首屏就应用；托盘使用透明的原版 logomark
   useEffect(() => {
     api.settingsGet().then((s) => {
@@ -364,13 +373,22 @@ export default function App() {
     setIslandIdleText(ui.islandIdleText)
   }, [])
 
+  const reloadSeq = useRef(0)
+  const reloadFailed = useRef(false)
   const reload = useCallback(async () => {
+    const seq = ++reloadSeq.current
     try {
       const list = await api.instanceList()
+      if (seq !== reloadSeq.current) return list
       setInstances(list)
+      reloadFailed.current = false
       return list
     } catch (e) {
-      notify('err', errText(e))
+      // 轮询失败时只提示一次；否则每次轮询都会重置提示计时器，错误永远不消失。
+      if (seq === reloadSeq.current && !reloadFailed.current) {
+        reloadFailed.current = true
+        notify('err', errText(e))
+      }
       return []
     }
   }, [notify])
@@ -409,10 +427,10 @@ export default function App() {
 
   const selected = useMemo(() => instances.find((i) => i.id === selectedId) ?? null, [instances, selectedId])
   const [detailDirty, setDetailDirty] = useState(false)
-
-  useEffect(() => {
-    setConsoleOpen(false)
-  }, [selectedId])
+  // 离开实例/切换实例前先确认；确认后必须真正卸载旧实例页，否则它的草稿还留在缓存里。
+  const [pendingDetail, setPendingDetail] = useState<
+    null | { kind: 'home' } | { kind: 'select'; id: string; task: boolean }
+  >(null)
 
   useEffect(() => {
     if (screen !== 'instance' || tab === 'console') setConsoleOpen(false)
@@ -425,13 +443,10 @@ export default function App() {
   }, [])
 
   const leaveInstance = useCallback(() => {
-    if (
-      detailDirty &&
-      !window.confirm('当前页签还有未保存的修改，返回首页会丢弃这些修改。继续？')
-    ) {
+    if (detailDirty) {
+      setPendingDetail({ kind: 'home' })
       return
     }
-    setDetailDirty(false)
     goHome()
   }, [detailDirty, goHome])
 
@@ -440,29 +455,44 @@ export default function App() {
     if (screen === 'instance' && selectedId && !selected && instances.length > 0) goHome()
   }, [screen, selected, selectedId, instances, goHome])
 
+  const selectNow = useCallback((id: string, openConsole = false) => {
+    setSelectedId(id)
+    setNavDir('forward')
+    setScreen('instance')
+    setConsoleOpen(openConsole)
+  }, [])
+
   const select = useCallback(
-    (id: string) => {
-      if (
-        id !== selectedId &&
-        detailDirty &&
-        !window.confirm('当前实例的页签还有未保存的修改，切换实例会丢弃这些修改。继续？')
-      ) {
+    (id: string, openConsole = false) => {
+      if (id === selectedId) {
+        // 已经缓存的实例页：保留未保存草稿，不要用一次重复点击把它清掉。
+        selectNow(id, openConsole)
         return
       }
-      setDetailDirty(false)
-      setSelectedId(id)
-      setNavDir('forward')
-      setScreen('instance')
+      if (detailDirty) {
+        setPendingDetail({ kind: 'select', id, task: openConsole })
+        return
+      }
+      selectNow(id, openConsole)
     },
-    [detailDirty, selectedId],
+    [detailDirty, selectedId, selectNow],
   )
 
   const openStartTask = useCallback(
     (id: string) => {
-      select(id)
+      if (id !== selectedId && detailDirty) {
+        setPendingDetail({ kind: 'select', id, task: true })
+        return
+      }
+      select(id, true)
       setTab('overview')
-      setConsoleOpen(true)
     },
+    [detailDirty, selectedId, select],
+  )
+
+  // 下载任务在灵动岛上点开时，直接打开该实例的控制台，而不是只切到实例页。
+  const openInstanceConsole = useCallback(
+    (id: string) => select(id, true),
     [select],
   )
 
@@ -513,6 +543,14 @@ export default function App() {
         return
       }
       if (!e.ctrlKey || e.altKey || e.metaKey) return
+      const target = e.target as HTMLElement | null
+      // 输入框和弹层里不抢数字键：Ctrl+1 在文本里可能被用户当编辑快捷键。
+      if (
+        target?.closest('input, textarea, select, [contenteditable="true"]') ||
+        document.querySelector('.modal-backdrop')
+      ) {
+        return
+      }
       const n = Number(e.key)
       if (Number.isInteger(n) && n >= 1 && n <= TABS.length && selected && screen === 'instance') {
         e.preventDefault()
@@ -559,6 +597,7 @@ export default function App() {
 
   return (
     <BackgroundTasksProvider successLingerMs={noticeSeconds * 1000}>
+    <InstanceDownloadTasks instances={instances} onOpen={openInstanceConsole} />
     <div className="shell">
       <div className="main" data-nav-dir={navDir}>
         <Page active={screen === 'global'}>
@@ -628,15 +667,15 @@ export default function App() {
                   </Button>
                 </PopPresence>
                 <PopPresence show={settingsDirty && !settingsBusy}>
-                  <Button
+                  <IconTextButton
                     className="primary"
                     onClick={() => void settingsActions.current?.save()}
                     disabled={!settingsDirty || settingsBusy}
                     title="保存设置（Ctrl+S）"
-                  >
-                    <Icon name="check" size={14} />
+                   icon="check" iconSize={14}>
+                    
                     {settingsBusy ? '保存中…' : '保存设置'}
-                  </Button>
+                  </IconTextButton>
                 </PopPresence>
               </div>
             </footer>
@@ -761,7 +800,7 @@ export default function App() {
               <div className="bottombar-inner home-status">
                 <span className="home-status-live">
                   <span className="dot" aria-hidden="true" />
-                  本机
+                  <span className="home-status-live-label">本机</span>
                 </span>
                 {plan?.gpu ? (
                   <>
@@ -833,6 +872,44 @@ export default function App() {
               : null
         }
       />
+
+      {pendingDetail && (
+        <Modal
+          className="confirm"
+          labelledBy="discard-detail-title"
+          onClose={() => setPendingDetail(null)}
+        >
+          <div className="modal-head">
+            <h2 id="discard-detail-title">放弃未保存的修改？</h2>
+          </div>
+          <div className="modal-foot">
+            <div className="spacer" />
+            <Button className="ghost" onClick={() => setPendingDetail(null)}>
+              取消
+            </Button>
+            <Button
+              className="danger"
+              onClick={() => {
+                const pending = pendingDetail
+                setPendingDetail(null)
+                if (!pending) return
+                setDetailDirty(false)
+                if (pending.kind === 'home') {
+                  // 卸载常驻的实例页，草稿才会真正丢弃。
+                  setSelectedId(null)
+                  setConsoleOpen(false)
+                  goHome()
+                  return
+                }
+                selectNow(pending.id, pending.task)
+                if (pending.task) setTab('overview')
+              }}
+            >
+              {pendingDetail.kind === 'home' ? '放弃并返回' : '放弃并切换'}
+            </Button>
+          </div>
+        </Modal>
+      )}
 
       {confirmLeave && (
         <Modal

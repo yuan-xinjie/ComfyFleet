@@ -154,7 +154,8 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  /* 卡片本身不能被浏览器聚焦/滚动锚定带着滚；纵向滚动只交给内部的列表。 */
+  overflow: clip;
 }
 .ov-nodes {
   container-type: inline-size;
@@ -192,9 +193,16 @@
 }
 .ov-nodes-head-actions .ghost.sm,
 .ov-nodes-head-actions .primary.sm {
-  height: 27px;
+  height: 28px;
   padding: 0 8px;
   font-size: 11.5px;
+}
+.ov-node-head-btn > .icon {
+  display: block;
+  flex: none;
+}
+.ov-node-head-btn .ov-bulk-label {
+  line-height: inherit;
 }
 .ov-nodes-head-icons {
   display: flex;
@@ -208,6 +216,12 @@
   padding: 0 7px;
   font-size: 10.5px;
 }
+/* 标题和下拉值由通用规则校正；这里只补节点顶栏自己的徽标和状态文字。 */
+.ov-nodes-head .badge-text,
+.ov-nodes-head .ov-nodes-startup > span {
+  transform: translateY(1px);
+}
+.ov-nodes-head .badge-text { display: inline-block; }
 .ov-nodes-head .icon-btn {
   width: 28px;
   height: 28px;
@@ -221,6 +235,37 @@
 }
 .ov-nodes-head .icon-btn:disabled { opacity: 0.4; }
 .ov-nodes-head .icon-btn.is-busy svg { animation: snap-spin 1.8s linear infinite; }
+/* 搜索框从右侧按钮区向左展开：宽度和透明度共用缓出曲线，收起时不走弹跳。 */
+.ov-nodes-search {
+  display: flex;
+  align-items: center;
+  flex: none;
+  width: 0;
+  margin-left: -6px;
+  margin-right: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    width 260ms var(--ease),
+    margin 260ms var(--ease),
+    opacity 150ms var(--ease);
+}
+.ov-nodes-search.is-open {
+  width: 172px;
+  margin-left: 0;
+  margin-right: 0;
+  opacity: 1;
+  pointer-events: auto;
+}
+.ov-nodes-search .node-search-input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+}
 .ov-node-install {
   flex: none;
   display: flex;
@@ -278,6 +323,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
 /* 任务进行中底部进度条常驻：给列表留出被它压住的那一段，最后一行能滚出来 */
@@ -292,12 +338,33 @@
   background: var(--blue-wash);
   border-color: transparent;
 }
+.ov-nodes .node-list { padding: 4px 6px; }
 .ov-nodes .node-row {
   grid-template-areas: 'title actions';
   align-items: center;
   gap: 8px 10px;
-  padding: 8px 14px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
 }
+.ov-nodes .node-row:hover { background: var(--hover-1); }
+.ov-nodes .node-row.is-jump { animation: node-row-jump 1.2s var(--ease); }
+@keyframes node-row-jump {
+  0%,
+  35% {
+    background: var(--blue-wash);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.tag-list { padding: 4px 6px; }
+.tag-row {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+}
+.tag-row:hover { background: var(--hover-1); }
 .ov-nodes .node-title {
   flex-wrap: nowrap;
   gap: 6px;
@@ -330,19 +397,6 @@
   min-width: 0;
   font-size: 12.5px;
 }
-.node-state {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--ink-4);
-  opacity: 0.55;
-}
-.node-state.is-on {
-  background: var(--green);
-  opacity: 1;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 13%, transparent);
-}
 .ov-nodes .node-actions {
   flex: none;
   gap: 2px;
@@ -358,6 +412,54 @@
   height: 26px;
   flex: none;
 }
+.ov-nodes .node-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  flex: none;
+  color: var(--ink-4);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  opacity: 0.72;
+}
+.ov-nodes .node-kind.is-git { color: var(--ink-3); }
+.ov-nodes .node-folder,
+.ov-nodes .node-repo { color: var(--ink-3); }
+.ov-nodes .node-folder:hover:not(:disabled),
+.ov-nodes .node-repo:hover:not(:disabled) {
+  color: var(--ink-1);
+  background: var(--hover-1);
+  border-color: transparent;
+}
+.ov-nodes .node-repo:hover:not(:disabled) {
+  color: var(--blue-ink);
+  background: var(--blue-wash);
+}
+/* 仓库、文件夹和删除只在悬浮/键盘进入节点时出现；位置保留，避免开关跳动。 */
+.ov-nodes .node-folder,
+.ov-nodes .node-repo,
+.ov-nodes .node-del {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 150ms var(--ease),
+    color 150ms var(--ease),
+    background-color 150ms var(--ease);
+}
+.ov-nodes .node-row:hover .node-folder,
+.ov-nodes .node-row:hover .node-repo,
+.ov-nodes .node-row:hover .node-del,
+.ov-nodes .node-row:focus-within .node-folder,
+.ov-nodes .node-row:focus-within .node-repo,
+.ov-nodes .node-row:focus-within .node-del,
+.ov-nodes .node-folder:focus-visible,
+.ov-nodes .node-repo:focus-visible,
+.ov-nodes .node-del:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
 .node-del {
   color: var(--ink-4);
   border-color: transparent;
@@ -368,46 +470,15 @@
   background: var(--red-wash);
   border-color: transparent;
 }
-.node-switch {
-  position: relative;
-  width: 30px;
-  height: 17px;
-  flex: none;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--sunken);
-  cursor: pointer;
-  transition:
-    background 0.16s var(--ease),
-    border-color 0.16s var(--ease);
+@media (prefers-reduced-motion: reduce) {
+  .ov-nodes-search,
+  .ov-nodes .node-folder,
+  .ov-nodes .node-repo,
+  .ov-nodes .node-del {
+    transition: none;
+  }
 }
-.node-switch > span {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--ink-4);
-  transition:
-    transform 0.16s var(--ease),
-    background 0.16s var(--ease);
-}
-.node-switch.is-on {
-  border-color: color-mix(in srgb, var(--blue) 50%, var(--line));
-  background: color-mix(in srgb, var(--blue) 17%, var(--surface));
-}
-.node-switch.is-on > span {
-  background: var(--blue);
-  transform: translateX(13px);
-}
-.node-switch:disabled { cursor: default; opacity: 0.45; }
-.node-switch:active { transform: none !important; }
-.node-switch:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px;
-}
+.node-enabled-switch { flex: 0 0 auto; }
 
 /* 模型卡还是占位：只放真实的模型目录，不编数量、不给假入口 */
 /* 模型卡：顶部选目录，中间像资源管理器一样进出子目录；文件可直接拖进来复制 */
@@ -415,9 +486,11 @@
 .ov-models-head {
   height: 44px;
   min-height: 44px;
+  min-width: 0;
   gap: 6px;
   padding: 7px 12px 7px 16px;
 }
+.ov-models-head h2 { flex: none; }
 .ov-models-head .icon-btn {
   width: 28px;
   height: 28px;
@@ -431,33 +504,52 @@
 }
 .ov-models-head .icon-btn:disabled { opacity: 0.4; }
 .ov-models-head .icon-btn.is-busy svg { animation: snap-spin 1.8s linear infinite; }
-.model-root-select { width: 210px; min-width: 0; }
-.model-root-select .select-trigger {
+.ov-models-head .model-root-select {
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: 96px;
+  max-width: 100%;
+}
+.ov-models-head .model-root-select .select-trigger {
+  width: auto;
+  max-width: 100%;
   height: 28px;
   min-height: 28px;
   padding: 3px 8px;
   border-radius: 8px;
   font-size: 11.5px;
 }
+.model-root-select .select-value {
+  font-size: 11.5px;
+}
 .model-root-select .select-caret { width: 12px; height: 12px; }
 .model-root-label {
-  max-width: 190px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   color: var(--ink-3);
   font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.model-root-menu .select-option-label {
+  color: var(--ink-1);
+  font-size: 12px;
+}
+.model-root-menu .select-option[aria-selected='true'] .select-option-label {
+  color: var(--blue-ink);
+}
 .model-crumbs {
   display: flex;
   align-items: center;
   gap: 1px;
+  height: 32px;
   min-height: 32px;
   padding: 4px 10px 4px 12px;
   border-bottom: 1px solid var(--line-2);
   overflow: hidden;
 }
-.model-up { width: 24px; height: 24px; flex: none; }
 .model-crumb {
   min-width: 0;
   max-width: 180px;
@@ -476,6 +568,54 @@
 .model-crumb:disabled { opacity: 0.5; }
 .model-crumb.is-current { color: var(--ink-1); }
 .model-crumb-sep { flex: none; color: var(--ink-4); font-family: var(--font-mono); font-size: 10.5px; }
+.model-menu {
+  position: fixed;
+  z-index: 1300;
+  display: grid;
+  gap: 1px;
+  min-width: 176px;
+  max-width: 260px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--card-color);
+  box-shadow: var(--shadow-2);
+  transform-origin: top left;
+  animation: model-menu-in 140ms var(--ease-out);
+}
+@keyframes model-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+.model-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--ease),
+    color 120ms var(--ease);
+}
+.model-menu-item svg { flex: none; color: var(--ink-3); }
+.model-menu-item:hover:not(:disabled) { background: var(--hover-1); color: var(--ink-1); }
+.model-menu-item:hover:not(:disabled) svg { color: var(--ink-1); }
+.model-menu-item:focus-visible { outline: 2px solid var(--blue-ink); outline-offset: -2px; }
+.model-menu-item:disabled { opacity: 0.38; cursor: not-allowed; }
+.model-menu-item.is-danger { color: var(--red); }
+.model-menu-item.is-danger svg { color: var(--red); }
+.model-menu-sep { height: 1px; margin: 3px 4px; background: var(--line-2); }
 .model-loading {
   width: 12px;
   height: 12px;
@@ -486,6 +626,29 @@
   animation: model-spin 0.7s linear infinite;
 }
 @keyframes model-spin { to { transform: rotate(360deg); } }
+.model-progress {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 6;
+  height: 2px;
+  overflow: hidden;
+  background: var(--blue-wash);
+  pointer-events: none;
+}
+.model-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  animation: model-progress-slide 900ms var(--ease) infinite;
+}
+@keyframes model-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
+}
 
 .ov-models-body {
   position: relative;
@@ -560,29 +723,41 @@
   background: transparent;
 }
 .model-list {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  padding: 3px 0;
+  padding: 4px 6px;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  transition: opacity 140ms var(--ease);
+}
+.model-list.is-loading { opacity: 0.5; }
+.model-list.is-nav-forward { animation: model-dir-forward 180ms var(--ease-out); }
+.model-list.is-nav-back { animation: model-dir-back 180ms var(--ease-out); }
+@keyframes model-dir-forward {
+  from { opacity: 0.35; transform: translateX(10px); }
+}
+@keyframes model-dir-back {
+  from { opacity: 0.35; transform: translateX(-10px); }
 }
 .model-row {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 7px 14px 7px 10px;
+  padding: 7px 8px;
   border: 0;
-  border-bottom: 1px solid var(--line-2);
-  border-radius: 0;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
+  transition:
+    background-color 160ms var(--ease),
+    opacity 160ms var(--ease);
 }
 button.model-row { cursor: pointer; }
 .model-row:active { transform: none !important; }
-.model-row:last-child { border-bottom: 0; }
 .model-row:hover { background: var(--hover-1); }
 .model-row.is-selected { background: color-mix(in srgb, var(--blue) 8%, transparent); }
 .model-row.is-cut .model-row-name,
@@ -742,6 +917,10 @@ button.model-row { cursor: pointer; }
   border-style: solid;
   background: color-mix(in srgb, var(--surface) 86%, transparent);
   color: var(--ink-2);
+  animation: model-busy-in 160ms var(--ease-out);
+}
+@keyframes model-busy-in {
+  from { opacity: 0; }
 }
 .model-spinner {
   width: 15px;
@@ -756,8 +935,17 @@ button.model-row { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .model-spinner,
   .model-loading,
-  .ov-models-head .icon-btn.is-busy svg {
+  .ov-models-head .icon-btn.is-busy svg,
+  .model-menu,
+  .model-list.is-nav-forward,
+  .model-list.is-nav-back,
+  .model-drop.is-busy,
+  .model-progress::after {
     animation: none;
+  }
+  .model-list,
+  .model-row {
+    transition: none;
   }
 }
 
@@ -796,6 +984,28 @@ pre.install-log.log-colored .log-tag-info { color: #7ee2b8; }
   border-top: 1px solid var(--line-2);
   background: color-mix(in srgb, var(--sunken) 55%, transparent);
 }
+.run-progress-list {
+  flex: none;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 14px 11px;
+  border-top: 1px solid var(--line-2);
+  background: color-mix(in srgb, var(--sunken) 55%, transparent);
+  max-height: 190px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.run-progress-list .run-progress-item {
+  gap: 4px;
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+}
+.run-progress-list .run-progress-item + .run-progress-item {
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--line-2) 70%, transparent);
+}
 .console-progress {
   margin: 0 16px 16px;
   border: 1px solid var(--line-2);
@@ -807,8 +1017,13 @@ pre.install-log.log-colored .log-tag-info { color: #7ee2b8; }
   overflow: hidden;
   color: var(--ink-2);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.run-progress-detail {
+  margin-left: 6px;
+  color: var(--ink-3);
 }
 .run-progress-speed {
   flex: none;
@@ -881,12 +1096,13 @@ pre.install-log.log-colored .log-line.ok { color: #7ee2b8; }
 }
 .snap-row-head:hover .act-title,
 .snap-row-head:focus-visible .act-title { color: var(--ink-1); }
+/* 外层 snap-card 已经是一张卡片，日志正文不再铺第二层灰底。 */
 .act-detail {
-  margin: 2px 0 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--term) 88%, transparent);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   font-family: var(--font-mono);
   font-size: 11.5px;
   line-height: 1.65;

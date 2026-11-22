@@ -37,7 +37,7 @@ export interface Paths {
   modelsRoot: string
 }
 
-/** 一个模型目录：type 为空 = 整包 models 根目录，下面按子目录名展开 */
+/** 一个模型目录：type 为空 = models 根目录，下面按子目录名展开；其他值可以是自定义分类 */
 export interface ModelDir {
   path: string
   type: string | null
@@ -72,7 +72,7 @@ export interface InstanceStorage {
 /** 启动时真正生效的目录（后端算好后给界面看，所见即所得） */
 export interface StorageDir {
   path: string
-  /** own = 实例自己 | extra = 实例附加 | shared = 全局共享 */
+  /** own = 实例自己 | extra = 实例附加 | shared = 全局共享 | launch = 启动参数 */
   source: 'own' | 'extra' | 'shared' | string
   exists: boolean
   isDefault: boolean
@@ -168,10 +168,18 @@ export interface ThemePalette {
   bgBottom: string
   /** 卡片 / 面板底色；透明度另外统一控制 */
   cardColor: string
+  /** 底栏底色；透明度由 barTransparency 单独控制 */
+  barColor: string
 }
 
 export type IslandIdleContent = 'animation' | 'time' | 'custom'
-export type IslandIdleShape = 'chevrons' | 'targets'
+export type IslandIdleShape = 'chevrons' | 'targets' | 'eyes'
+/** 本机字体族；cjk / mono 用来给三组选择器分桶。 */
+export interface FontFamily {
+  name: string
+  cjk: boolean
+  mono: boolean
+}
 
 export interface UiOpts {
   theme: 'light' | 'dark'
@@ -181,6 +189,16 @@ export interface UiOpts {
   light: ThemePalette
   /** 卡片透明度百分比：0 为不透明，80 为最透 */
   cardTransparency: number
+  /** 底栏透明度百分比：0 为不透明，80 为最透 */
+  barTransparency: number
+  /** 底栏透明度直接跟随卡片透明度 */
+  barFollowCard: boolean
+  /** 英文字体族名称 */
+  fontLatin: string
+  /** 中文字体族名称 */
+  fontCjk: string
+  /** 等宽字体族名称 */
+  fontMono: string
   /** 空闲任务条：auto = 自动隐藏，指针靠近底部时出现；always = 常驻 */
   taskBarIdle: 'auto' | 'always'
   /** 成功任务与操作通知的停留秒数（1–5）。 */
@@ -377,6 +395,29 @@ export interface InstanceLogEvent {
 export interface InstanceLogState {
   lines: string[]
   seq: number
+}
+
+/** Python 进度桥上报的一条进度。 */
+export interface PythonProgress {
+  id: string
+  name: string
+  indeterminate: boolean
+  value: number
+  max: number
+  left: string
+  right: string
+  speed: string | null
+}
+
+export interface InstanceProgressEvent {
+  instanceId: string
+  rev: number
+  progress: PythonProgress[]
+}
+
+export interface InstanceProgressState {
+  rev: number
+  progress: PythonProgress[]
 }
 
 export interface LiveEnv {
@@ -636,6 +677,8 @@ export interface RuntimeEvent {
 /** custom_nodes 下的一个节点 */
 export interface NodeInfo {
   name: string
+  /** 节点目录绝对路径；禁用节点带 `.disabled` 后缀 */
+  path: string
   enabled: boolean
   kind: 'git' | 'manual'
   url: string | null

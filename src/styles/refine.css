@@ -125,7 +125,7 @@ button.inst-run.stop:hover:not(:disabled) {
   color: var(--coral-ink);
 }
 button.inst-run:disabled {
-  background: var(--hover-1);
+  background: var(--card-surface);
   color: var(--ink-4);
   cursor: not-allowed;
 }
@@ -196,6 +196,7 @@ button.inst-run:disabled {
   min-width: 0;
   color: var(--ink-3);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .inst-task-meta > span:first-child {
@@ -262,9 +263,9 @@ button.primary:active:not(:disabled) {
   box-shadow: none;
 }
 button.primary:disabled {
-  background: var(--sunken-2);
+  background: var(--card-sunken);
   border-color: var(--line-2);
-  color: var(--ink-4);
+  color: var(--ink-3);
   box-shadow: none;
 }
 button.ghost {
@@ -355,8 +356,8 @@ button:active:not(:disabled) { transform: none; }
 .console-bar {
   gap: 6px;
   padding: 11px 12px;
-  background: #0e111a;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--card);
+  border-bottom: 1px solid var(--line-2);
   color: var(--term-dim);
 }
 .console-bar .badge {
@@ -391,10 +392,69 @@ button:active:not(:disabled) { transform: none; }
 }
 .console-bar button:disabled {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.07);
-  color: rgba(231, 233, 242, 0.32);
+  border-color: var(--line-2);
+  color: var(--theme-ink-4);
 }
 .console-bar .meta { color: var(--term-dim); font-size: 10.5px; }
+.console-bar .console-search-toggle.is-on {
+  background: var(--hover-bg);
+  border-color: var(--hover-border);
+  color: var(--hover-ink);
+}
+.console-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--card-surface-2);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--term-dim);
+}
+.console-search .icon { color: var(--term-dim); }
+.console-search .console-search-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--term-ink);
+  font: 12px var(--font-mono);
+}
+.console-search .console-search-input::placeholder { color: var(--term-dim); }
+.console-search .console-search-input:focus {
+  border-color: var(--blue);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 2px var(--blue-wash);
+}
+.console-search-count {
+  min-width: 52px;
+  color: var(--term-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.console-search-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: transparent;
+  color: #c9cedd;
+  cursor: pointer;
+}
+.console-search-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--hover-border);
+  color: var(--hover-ink);
+}
 .console-wrap .banner.err {
   margin: 8px 12px 0;
   background: rgba(255, 92, 108, 0.1);
@@ -428,6 +488,7 @@ textarea {
 /* 激活页签只保留平涂底色，不再画全息渐变下划线 */
 .tab.active::after { display: none; }
 
+/* 终端页的留白不随宽度收缩，否则窗口变窄时黑色终端卡反而会变高。 */
 @media (max-width: 1100px) {
-  .content.flush { padding: 16px 20px 24px; }
+  .content.flush { padding: 26px 22px 36px; }
 }

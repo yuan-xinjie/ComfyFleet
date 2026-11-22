@@ -10,6 +10,7 @@ import {
 import Icon, { type IconName } from './Icon'
 import {
   IslandChevron,
+  IslandEye,
   IslandShape,
   IslandTarget,
   ISLAND_BOTTOM_GAP_DEFAULT,
@@ -70,6 +71,7 @@ const STATE_TONE: Record<OperationState, string> = {
 
 const KIND_ICON: Record<TaskKind, IconName> = {
   generate: 'diagnostics',
+  download: 'download',
   start: 'power',
   install: 'download',
   wheel: 'box',
@@ -101,6 +103,8 @@ function choosePrimary(tasks: TaskRecord[]): TaskRecord | null {
   if (running.length > 0) {
     const generate = running.find((task) => task.kind === 'generate')
     if (generate) return generate
+    const download = running.find((task) => task.kind === 'download')
+    if (download) return download
     return [...running].sort((a, b) => a.enteredAt - b.enteredAt)[0] ?? null
   }
   const terminal = tasks.filter((task) => task.state === 'failed' || task.state === 'cancelled')
@@ -124,11 +128,17 @@ function taskPercent(task: BackgroundTask): number | null {
     : null
 }
 
-/** 生成任务运行中优先显示采样速度；其他任务仍显示进度百分比。 */
+/** 生成任务运行中优先显示采样速度；模型下载同时显示百分比和速度。 */
 function taskValue(task: BackgroundTask): string {
   if (task.state !== 'running') return STATE_LABEL[task.state]
-  if (task.kind === 'generate' && task.speed) return task.speed
   const percent = taskPercent(task)
+  if (task.kind === 'download') {
+    const value = [percent !== null ? `${percent}%` : null, task.speed]
+      .filter(Boolean)
+      .join(' · ')
+    return value || STATE_LABEL.running
+  }
+  if (task.kind === 'generate' && task.speed) return task.speed
   return percent !== null ? `${percent}%` : STATE_LABEL.running
 }
 
@@ -264,14 +274,19 @@ export default function TaskBar({
   const isListOpen = listOpen && others.length > 0
 
   const expanded = hovered || focused || isListOpen
-  const persistentActions = actions.some(
+  // 岛显示操作反馈时不提供启动按钮，避免悬浮提示时误触。
+  const noticeShown = Boolean(notice) && (notice?.kind === 'err' || !primary)
+  const visibleActions = noticeShown
+    ? actions.filter((action) => action.id !== 'start')
+    : actions
+  const persistentActions = visibleActions.some(
     (action) =>
       action.id === 'save' ||
       action.id === 'discard' ||
       action.id === 'save-invalid' ||
       action.id === 'save-busy',
   )
-  const showActions = actions.length > 0 && (expanded || persistentActions)
+  const showActions = visibleActions.length > 0 && (expanded || persistentActions)
   const shapeActionGapSafe = Number.isFinite(shapeActionGap)
     ? Math.max(
         ISLAND_SHAPE_ACTION_GAP_MIN,
@@ -284,8 +299,11 @@ export default function TaskBar({
   const idleBottom = showActions
     ? Math.max(0, bottomGapSafe - IDLE_EXPAND_CENTER_DROP)
     : bottomGapSafe
-  const actionsSignature = actions
-    .map((action) => `${action.id}\u0000${action.label}\u0000${action.variant ?? ''}\u0000${action.status ? 1 : 0}`)
+  const actionsSignature = visibleActions
+    .map(
+      (action) =>
+        `${action.id}\u0000${action.label}\u0000${action.variant ?? ''}\u0000${action.status ? 1 : 0}`,
+    )
     .join('\u0001')
   const width = Math.min(
     MAX_ISLAND_WIDTH,
@@ -303,30 +321,34 @@ export default function TaskBar({
     : 'check'
   const primaryValue = primary ? taskValue(primary) : ''
 
-  const view: IslandView | null = primary
+  const noticeView: IslandView | null = notice
     ? {
-        key: primary.id,
-        title: primary.title,
-        value: primaryValue,
-        tone: STATE_TONE[primary.state],
-        icon: primaryIcon,
-        percent:
-          primary.state === 'running' ? percent : 100,
-        indeterminate: primary.state === 'running' && percent === null,
-        task: primary,
+        key: 'notice',
+        title: notice.msg,
+        value: notice.kind === 'err' ? STATE_LABEL.failed : STATE_LABEL.ok,
+        tone: notice.kind === 'err' ? 'fail' : 'ok',
+        icon: notice.kind === 'err' ? 'alert' : 'check',
+        percent: 100,
+        indeterminate: false,
+        task: null,
       }
-    : notice
-      ? {
-          key: 'notice',
-          title: notice.msg,
-          value: notice.kind === 'err' ? STATE_LABEL.failed : STATE_LABEL.ok,
-          tone: notice.kind === 'err' ? 'fail' : 'ok',
-          icon: notice.kind === 'err' ? 'alert' : 'check',
-          percent: 100,
-          indeterminate: false,
-          task: null,
-        }
-      : null
+    : null
+  // 失败提示优先于进行中的任务：否则后台任务运行时错误会被任务视图完全盖住。
+  const view: IslandView | null =
+    notice?.kind === 'err'
+      ? noticeView
+      : primary
+        ? {
+            key: primary.id,
+            title: primary.title,
+            value: primaryValue,
+            tone: STATE_TONE[primary.state],
+            icon: primaryIcon,
+            percent: primary.state === 'running' ? percent : 100,
+            indeterminate: primary.state === 'running' && percent === null,
+            task: primary,
+          }
+        : noticeView
 
   const viewSignature = view
     ? [
@@ -418,7 +440,7 @@ export default function TaskBar({
         : '控制台'
   const idleIcon: IconName = idleContent === 'time' ? 'clock' : 'console'
   const idleBaseWidth = idleWidth || idleMinWidth
-  const shapeWidth = idleShape === 'targets' ? 11 : 8
+  const shapeWidth = idleShape === 'targets' ? 11 : idleShape === 'eyes' ? 5 : 8
   const expandedMinWidth =
     idleContent === 'animation'
       ? actionsWidth + (shapeInset + shapeWidth + shapeActionGapSafe) * 2
@@ -428,7 +450,7 @@ export default function TaskBar({
     Math.max(idleBaseWidth + IDLE_HOVER_GROW, expandedMinWidth),
   )
   const idleDisplayWidth =
-    actions.length > 0 && showActions ? idleActionWidth : idleBaseWidth
+    visibleActions.length > 0 && showActions ? idleActionWidth : idleBaseWidth
   if (shownView === null && idle) {
     idleSnapshot.current = {
       width: idleDisplayWidth,
@@ -437,14 +459,14 @@ export default function TaskBar({
   }
 
   const actionStrip =
-    actions.length > 0 ? (
+    visibleActions.length > 0 ? (
       <div
         ref={actionsRef}
         className={`island-actions${showActions ? ' is-on' : ''}`}
         style={{ width: showActions ? actionsWidth : 0 }}
       >
         <span className="island-actions-lead" aria-hidden="true" />
-        {actions.map((action) =>
+        {visibleActions.map((action) =>
           action.status ? (
             <span
               key={action.id}
@@ -475,7 +497,8 @@ export default function TaskBar({
     ),
     ...glowStyle,
   } as CSSProperties
-  const SideShape = idleShape === 'targets' ? IslandTarget : IslandChevron
+  const SideShape =
+    idleShape === 'targets' ? IslandTarget : idleShape === 'eyes' ? IslandEye : IslandChevron
   const idleVisual =
     idleContent === 'animation' ? (
       <IslandShape shape={idleShape} />
@@ -527,7 +550,7 @@ export default function TaskBar({
   // 收起时容器宽度是 0，不能拿 scrollWidth（会被当前展开宽度撑大）；按子项真实宽度算。
   useLayoutEffect(() => {
     const el = actionsRef.current
-    if (!el || actions.length === 0) {
+    if (!el || visibleActions.length === 0) {
       setActionsWidth(0)
       return
     }
@@ -543,7 +566,7 @@ export default function TaskBar({
     observer.observe(el)
     for (const kid of Array.from(el.children)) observer.observe(kid)
     return () => observer.disconnect()
-  }, [actionsSignature, actions.length, Boolean(shownView)])
+  }, [actionsSignature, visibleActions.length, Boolean(shownView)])
 
   // 常驻入口的真实宽度；退场时缩到同宽，随后切换到同一个胶囊形状。
   useLayoutEffect(() => {
@@ -560,7 +583,15 @@ export default function TaskBar({
       setHovered(false)
       setFocused(false)
       setListOpen(false)
-      if (document.activeElement !== mainRef.current) {
+      const active = document.activeElement
+      const ownsFocus =
+        active === document.body ||
+        Boolean(rootRef.current?.contains(active as Node | null))
+      if (
+        ownsFocus &&
+        !document.querySelector('.modal-backdrop') &&
+        active !== mainRef.current
+      ) {
         suppressFocus.current = true
         mainRef.current?.focus({ preventScroll: true })
       }

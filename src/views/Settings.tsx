@@ -1,10 +1,12 @@
 import { TextInput, Checkbox, Range, DirectoryInput } from '../components/Form'
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { api, errText } from '../lib/api'
 import type {
   AppInfo,
   AppUpdate,
+  FontFamily,
   GitInfo,
   GlobalSettings,
   IslandIdleShape,
@@ -21,6 +23,7 @@ import type {
 import Icon, { type IconName } from '../components/Icon'
 import ModelDirList from '../components/ModelDirList'
 import Segmented from '../components/Segmented'
+import Select from '../components/Select'
 import {
   IslandShape,
   islandGlowStyle,
@@ -43,6 +46,7 @@ import coreLogo from '../assets/core-logo.svg'
 import {
   DEFAULT_DARK_PALETTE,
   DEFAULT_LIGHT_PALETTE,
+  MAX_BAR_TRANSPARENCY,
   MAX_CARD_TRANSPARENCY,
   applyTheme,
   luminance,
@@ -53,11 +57,64 @@ import {
   rgbaHex,
   type ThemeMode,
 } from '../lib/theme'
+import { FALLBACK_FONTS, fontOptions } from '../lib/fonts'
 
 const IDLE_SHAPES: { value: IslandIdleShape; label: string }[] = [
   { value: 'chevrons', label: '箭头' },
   { value: 'targets', label: '圆环' },
+  { value: 'eyes', label: '眼睛' },
 ]
+
+interface MirrorPreset {
+  value: string
+  label: string
+}
+
+const PYPI_MIRRORS: MirrorPreset[] = [
+  { value: '', label: '官方源' },
+  { value: 'https://pypi.tuna.tsinghua.edu.cn/simple', label: '清华' },
+  { value: 'https://mirrors.aliyun.com/pypi/simple/', label: '阿里云' },
+  { value: 'https://pypi.mirrors.ustc.edu.cn/simple', label: '中科大' },
+  { value: 'https://mirrors.cloud.tencent.com/pypi/simple', label: '腾讯云' },
+  { value: 'https://repo.huaweicloud.com/repository/pypi/simple', label: '华为云' },
+]
+
+const TORCH_MIRRORS: MirrorPreset[] = [
+  { value: '', label: '官方源' },
+  { value: 'https://mirrors.aliyun.com/pytorch-wheels', label: '阿里云' },
+  { value: 'https://mirror.sjtu.edu.cn/pytorch-wheels', label: '上海交大' },
+]
+
+/**
+ * 镜像源：候选直接点在输入框里填，也可以自己敲地址。
+ * 留空 = 官方源，所以占位文字就写「官方源」。
+ */
+function MirrorField(props: {
+  label: string
+  ariaLabel: string
+  value: string | null
+  presets: MirrorPreset[]
+  placeholder: string
+  onChange: (value: string) => void
+}) {
+  const { label, ariaLabel, value, presets, placeholder, onChange } = props
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <Select
+        ariaLabel={ariaLabel}
+        editable
+        className="mirror-select"
+        value={(value ?? '').trim()}
+        editableValue={value ?? ''}
+        editablePlaceholder={placeholder}
+        options={presets}
+        onChange={onChange}
+        onEditableChange={onChange}
+      />
+    </div>
+  )
+}
 
 function previewClockText(): string {
   const now = new Date()
@@ -218,6 +275,7 @@ export default function SettingsView({
     if (focusSection) setSection(focusSection)
   }, [focusSection])
   const [settings, setSettings] = useState<GlobalSettings | null>(null)
+  const [fonts, setFonts] = useState<FontFamily[]>(FALLBACK_FONTS)
   const [previewClock, setPreviewClock] = useState(previewClockText)
   const [baseline, setBaseline] = useState<string | null>(null)
   const [editMode, setEditMode] = useState<ThemeMode>('dark')
@@ -283,6 +341,12 @@ export default function SettingsView({
     }
   }, [notify])
 
+  // 本机字体可能在两次打开设置之间装了新的；每次进设置页重新取一遍。
+  useEffect(() => {
+    if (!active) return
+    api.fontsList().then(setFonts).catch(() => undefined)
+  }, [active])
+
   useEffect(() => {
     if (loaded.current) return
     loaded.current = true
@@ -326,6 +390,7 @@ export default function SettingsView({
       palette.bgMid,
       palette.bgBottom,
       palette.cardColor,
+      palette.barColor,
     ])
     if (colors.some((value) => normalizeHex(value) === null)) {
       notify('err', '颜色要写成 #RRGGBB，例如 #2b63ff')
@@ -335,12 +400,17 @@ export default function SettingsView({
       MAX_CARD_TRANSPARENCY,
       Math.max(0, Math.round(Number(ui.cardTransparency) || 0)),
     )
+    const barTransparency = Math.min(
+      MAX_BAR_TRANSPARENCY,
+      Math.max(0, Math.round(Number(ui.barTransparency) || 0)),
+    )
     const normalizePalette = (palette: ThemePalette): ThemePalette => ({
       accent: normalizeHex(palette.accent)!,
       bgTop: normalizeHex(palette.bgTop)!,
       bgMid: normalizeHex(palette.bgMid)!,
       bgBottom: normalizeHex(palette.bgBottom)!,
       cardColor: normalizeHex(palette.cardColor)!,
+      barColor: normalizeHex(palette.barColor)!,
     })
     const normalized: GlobalSettings = {
       ...settings,
@@ -349,6 +419,8 @@ export default function SettingsView({
         dark: normalizePalette(ui.dark),
         light: normalizePalette(ui.light),
         cardTransparency,
+        barTransparency,
+        barFollowCard: Boolean(ui.barFollowCard),
       },
     }
     setBusy(true)
@@ -489,6 +561,9 @@ export default function SettingsView({
     onPreviewTheme?.(next)
   }
 
+  const setFont = (patch: Partial<Pick<UiOpts, 'fontLatin' | 'fontCjk' | 'fontMono'>>) =>
+    applyDraft({ ...settings.ui, ...patch })
+
   const setPalette = (key: keyof ThemePalette, value: string) => {
     const nextPalette = { ...settings.ui[editMode], [key]: value }
     const ui: UiOpts = {
@@ -506,6 +581,20 @@ export default function SettingsView({
       ...settings.ui,
       theme: editMode,
       cardTransparency: Math.min(MAX_CARD_TRANSPARENCY, Math.max(0, value)),
+    })
+
+  const setBarTransparency = (value: number) =>
+    applyDraft({
+      ...settings.ui,
+      theme: editMode,
+      barTransparency: Math.min(MAX_BAR_TRANSPARENCY, Math.max(0, value)),
+    })
+
+  const setBarFollowCard = (value: boolean) =>
+    applyDraft({
+      ...settings.ui,
+      theme: editMode,
+      barFollowCard: value,
     })
 
   const resetTheme = () =>
@@ -570,6 +659,17 @@ export default function SettingsView({
     }
   }
 
+  /** 共享输入 / 输出目录：选一个文件夹填进对应字段。 */
+  const chooseSharedDir = async (child: 'input' | 'output') => {
+    try {
+      const dir = await api.pickFolder()
+      if (!dir) return
+      setStorage(child === 'input' ? { sharedInput: dir } : { sharedOutput: dir })
+    } catch (e) {
+      notify('err', errText(e))
+    }
+  }
+
   /** 选一个目录做 wheel 库；保存设置后生效，统计等重新加载。 */
   const chooseWheelsDir = async () => {
     try {
@@ -589,6 +689,9 @@ export default function SettingsView({
   const previewMid = previewPalette.bgMid
   const previewBottom = previewPalette.bgBottom
   const previewAlpha = 1 - settings.ui.cardTransparency / 100
+  const shownBarTransparency = settings.ui.barFollowCard
+    ? settings.ui.cardTransparency
+    : settings.ui.barTransparency
   // 预览里“卡片”文字跟着卡片亮度，“设置”按钮跟着渐变背景亮度。
   const previewCardInk =
     luminance(mixHex(previewMid, previewPalette.cardColor, previewAlpha)) > 0.22 ? '#141824' : '#f5f6fb'
@@ -599,17 +702,21 @@ export default function SettingsView({
   return (
     <div className="settings-layout" ref={layoutRef}>
       <nav className="settings-rail" aria-label="设置分类">
+        <span
+          className="settings-nav-glider"
+          aria-hidden="true"
+          style={{ transform: `translateY(${Math.max(0, SETTINGS_SECTIONS.findIndex((i) => i.id === section)) * 36}px)` }}
+        />
         {SETTINGS_SECTIONS.map((item) => (
-          <Button
+          <IconTextButton
             key={item.id}
             type="button"
             className={`settings-nav${section === item.id ? ' active' : ''}`}
             aria-current={section === item.id ? 'page' : undefined}
             onClick={() => setSection(item.id)}
-          >
-            <Icon name={item.icon} size={14} />
+           icon={item.icon} iconSize={14}>
             <span>{item.label}</span>
-          </Button>
+          </IconTextButton>
         ))}
       </nav>
 
@@ -642,7 +749,6 @@ export default function SettingsView({
                 <ColorField
                   label="主题色"
                   value={editPalette.accent}
-                  hint="按钮、链接与焦点环。"
                   onChange={(value) => setPalette('accent', value)}
                 />
                 <ColorField
@@ -685,6 +791,75 @@ export default function SettingsView({
                 </label>
               </div>
 
+              <div className="appearance-card-row">
+                <ColorField
+                  label="底栏颜色"
+                  value={editPalette.barColor}
+                  onChange={(value) => setPalette('barColor', value)}
+                />
+                <label className="field card-alpha-field">
+                  <span>
+                    底栏透明度
+                    <span className="mono card-alpha-value">{shownBarTransparency}%</span>
+                  </span>
+                  <Range
+                    type="range"
+                    min={0}
+                    max={MAX_BAR_TRANSPARENCY}
+                    step={1}
+                    value={shownBarTransparency}
+                    aria-label="底栏透明度"
+                    disabled={settings.ui.barFollowCard}
+                    onChange={(e) => setBarTransparency(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+
+              <label className="toggle appearance-bar-follow">
+                <Checkbox
+                  type="checkbox"
+                  checked={settings.ui.barFollowCard}
+                  onChange={(e) => setBarFollowCard(e.target.checked)}
+                />
+                跟随卡片透明度
+              </label>
+
+              <div className="appearance-fonts">
+                <label className="field">
+                  <span>英文字体</span>
+                  <Select
+                    ariaLabel="英文字体"
+                    value={settings.ui.fontLatin}
+                    options={fontOptions(fonts, 'latin', settings.ui.fontLatin)}
+                    searchable
+                    searchPlaceholder="搜索字体"
+                    onChange={(value) => setFont({ fontLatin: value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>中文字体</span>
+                  <Select
+                    ariaLabel="中文字体"
+                    value={settings.ui.fontCjk}
+                    options={fontOptions(fonts, 'cjk', settings.ui.fontCjk)}
+                    searchable
+                    searchPlaceholder="搜索字体"
+                    onChange={(value) => setFont({ fontCjk: value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>等宽字体</span>
+                  <Select
+                    ariaLabel="等宽字体"
+                    value={settings.ui.fontMono}
+                    options={fontOptions(fonts, 'mono', settings.ui.fontMono)}
+                    searchable
+                    searchPlaceholder="搜索字体"
+                    onChange={(value) => setFont({ fontMono: value })}
+                  />
+                </label>
+              </div>
+
               <div
                 className="theme-preview"
                 style={{
@@ -717,157 +892,213 @@ export default function SettingsView({
         )}
 
         {section === 'island' && (
-          <div className="panel">
+          <div className="panel island-panel">
             <div className="panel-head">
               <h2>灵动岛</h2>
               <span className="badge ghost">实时预览</span>
+              <span className="island-head-preview" aria-hidden="true">
+                <span
+                  className={`island-idle${settings.ui.islandIdleContent === 'animation' ? ' island-idle-anim' : ''}${settings.ui.islandGlow ? ' is-glowing' : ''}`}
+                  style={islandPreviewStyle}
+                >
+                  {islandPreviewVisual}
+                </span>
+              </span>
             </div>
             <div className="panel-body island-settings-body">
-              <div className="island-settings-layout">
-                <div className="island-settings-sections">
-                  <section className="island-settings-section">
-                    <h3>位置</h3>
-                    <div className="island-settings-grid">
-                      <label className="field card-alpha-field island-bottom-field">
-                        <span>
-                          底部距离
-                          <span className="mono card-alpha-value">
-                            {settings.ui.islandBottomGap}px
-                          </span>
-                        </span>
-                        <Range
-                          aria-label="底部距离"
-                          min={ISLAND_BOTTOM_GAP_MIN}
-                          max={ISLAND_BOTTOM_GAP_MAX}
-                          step={2}
-                          value={settings.ui.islandBottomGap}
-                          onChange={(e) =>
-                            applyDraft({
-                              ...settings.ui,
-                              islandBottomGap: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
-                  </section>
+              <div className="island-settings-groups">
+                <section className="island-group">
+                  <div className="island-card-row is-choosers">
+                    <label className="field">
+                      <span>空闲任务条</span>
+                      <Segmented
+                        ariaLabel="空闲任务条"
+                        value={settings.ui.taskBarIdle}
+                        options={[
+                          { value: 'auto', label: '自动隐藏' },
+                          { value: 'always', label: '常驻' },
+                        ]}
+                        onChange={(value) =>
+                          applyDraft({ ...settings.ui, taskBarIdle: value })
+                        }
+                      />
+                    </label>
 
-                  <section className="island-settings-section">
-                    <h3>空闲</h3>
-                    <div className="island-settings-grid">
-                      <label className="field">
-                        <span>空闲任务条</span>
-                        <Segmented
-                          ariaLabel="空闲任务条"
-                          value={settings.ui.taskBarIdle}
-                          options={[
-                            { value: 'auto', label: '自动隐藏' },
-                            { value: 'always', label: '常驻' },
-                          ]}
-                          onChange={(value) =>
-                            applyDraft({ ...settings.ui, taskBarIdle: value })
-                          }
-                        />
-                      </label>
+                    <label className="field">
+                      <span>空闲内容</span>
+                      <Segmented
+                        ariaLabel="空闲内容"
+                        value={settings.ui.islandIdleContent}
+                        options={[
+                          { value: 'animation', label: '动画' },
+                          { value: 'time', label: '时间' },
+                          { value: 'custom', label: '自定义' },
+                        ]}
+                        onChange={(value) =>
+                          applyDraft({ ...settings.ui, islandIdleContent: value })
+                        }
+                      />
+                    </label>
 
-                      <label className="field">
-                        <span>通知停留</span>
-                        <Segmented
-                          ariaLabel="通知停留"
-                          value={String(settings.ui.noticeSeconds)}
-                          options={[1, 2, 3, 4, 5].map((seconds) => ({
-                            value: String(seconds),
-                            label: `${seconds} 秒`,
-                          }))}
-                          onChange={(value) =>
-                            applyDraft({ ...settings.ui, noticeSeconds: Number(value) })
-                          }
-                        />
-                      </label>
+                    <label className="field">
+                      <span>通知停留</span>
+                      <Segmented
+                        ariaLabel="通知停留"
+                        value={String(settings.ui.noticeSeconds)}
+                        options={[1, 2, 3, 4, 5].map((seconds) => ({
+                          value: String(seconds),
+                          label: `${seconds} 秒`,
+                        }))}
+                        onChange={(value) =>
+                          applyDraft({ ...settings.ui, noticeSeconds: Number(value) })
+                        }
+                      />
+                    </label>
 
-                      <label className="field">
-                        <span>空闲内容</span>
-                        <Segmented
-                          ariaLabel="空闲内容"
-                          value={settings.ui.islandIdleContent}
-                          options={[
-                            { value: 'animation', label: '动画' },
-                            { value: 'time', label: '时间' },
-                            { value: 'custom', label: '自定义' },
-                          ]}
-                          onChange={(value) =>
-                            applyDraft({ ...settings.ui, islandIdleContent: value })
-                          }
-                        />
-                      </label>
+                    <label className="field">
+                      <span>外发光</span>
+                      <Segmented
+                        ariaLabel="外发光"
+                        value={settings.ui.islandGlow ? 'on' : 'off'}
+                        options={[
+                          { value: 'on', label: '开启' },
+                          { value: 'off', label: '关闭' },
+                        ]}
+                        onChange={(value) =>
+                          applyDraft({ ...settings.ui, islandGlow: value === 'on' })
+                        }
+                      />
+                    </label>
+                  </div>
 
+                  {settings.ui.islandIdleContent === 'custom' && (
+                    <label className="field">
+                      <span>自定义内容</span>
+                      <TextInput
+                        aria-label="自定义内容"
+                        maxLength={24}
+                        value={settings.ui.islandIdleText}
+                        onChange={(e) =>
+                          applyDraft({
+                            ...settings.ui,
+                            islandIdleText: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  )}
+
+                  {settings.ui.islandGlow && (
+                    <div className="island-card-row is-two">
+                      <ColorField
+                        label="默认发光颜色"
+                        value={settings.ui.islandGlowColor}
+                        onChange={(value) =>
+                          applyDraft({ ...settings.ui, islandGlowColor: value })
+                        }
+                      />
                       <label className="field card-alpha-field">
                         <span>
-                          空闲宽度
+                          发光范围
                           <span className="mono card-alpha-value">
-                            {settings.ui.islandWidth}px
+                            {settings.ui.islandGlowRange}px
                           </span>
                         </span>
                         <Range
-                          aria-label="空闲宽度"
-                          min={ISLAND_WIDTH_MIN}
-                          max={ISLAND_WIDTH_MAX}
+                          aria-label="发光范围"
+                          min={ISLAND_GLOW_RANGE_MIN}
+                          max={ISLAND_GLOW_RANGE_MAX}
                           step={2}
-                          value={settings.ui.islandWidth}
+                          value={settings.ui.islandGlowRange}
                           onChange={(e) =>
                             applyDraft({
                               ...settings.ui,
-                              islandWidth: Number(e.target.value),
+                              islandGlowRange: Number(e.target.value),
                             })
                           }
                         />
                       </label>
-
-                      <label className="field card-alpha-field island-speed-field">
-                        <span>
-                          动画速度
-                          <span className="mono card-alpha-value">
-                            {(settings.ui.islandAnimationSpeed / 100).toFixed(1)}×
-                          </span>
-                        </span>
-                        <Range
-                          aria-label="动画速度"
-                          min={ISLAND_ANIM_SPEED_MIN}
-                          max={ISLAND_ANIM_SPEED_MAX}
-                          step={10}
-                          value={settings.ui.islandAnimationSpeed}
-                          onChange={(e) =>
-                            applyDraft({
-                              ...settings.ui,
-                              islandAnimationSpeed: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </label>
-
-                      {settings.ui.islandIdleContent === 'custom' && (
-                        <label className="field">
-                          <span>自定义内容</span>
-                          <TextInput
-                            aria-label="自定义内容"
-                            maxLength={24}
-                            value={settings.ui.islandIdleText}
-                            onChange={(e) =>
-                              applyDraft({
-                                ...settings.ui,
-                                islandIdleText: e.target.value,
-                              })
-                            }
-                          />
-                        </label>
-                      )}
                     </div>
-                  </section>
+                  )}
+                </section>
+
+                <section className="island-group">
+                  <div className="island-card-row is-three">
+                    <label className="field card-alpha-field">
+                      <span>
+                        空闲宽度
+                        <span className="mono card-alpha-value">
+                          {settings.ui.islandWidth}px
+                        </span>
+                      </span>
+                      <Range
+                        aria-label="空闲宽度"
+                        min={ISLAND_WIDTH_MIN}
+                        max={ISLAND_WIDTH_MAX}
+                        step={2}
+                        value={settings.ui.islandWidth}
+                        onChange={(e) =>
+                          applyDraft({
+                            ...settings.ui,
+                            islandWidth: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label className="field card-alpha-field">
+                      <span>
+                        底部距离
+                        <span className="mono card-alpha-value">
+                          {settings.ui.islandBottomGap}px
+                        </span>
+                      </span>
+                      <Range
+                        aria-label="底部距离"
+                        min={ISLAND_BOTTOM_GAP_MIN}
+                        max={ISLAND_BOTTOM_GAP_MAX}
+                        step={2}
+                        value={settings.ui.islandBottomGap}
+                        onChange={(e) =>
+                          applyDraft({
+                            ...settings.ui,
+                            islandBottomGap: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </label>
+
+                    <label className="field card-alpha-field">
+                      <span>
+                        动画速度
+                        <span className="mono card-alpha-value">
+                          {(settings.ui.islandAnimationSpeed / 100).toFixed(1)}×
+                        </span>
+                      </span>
+                      <Range
+                        aria-label="动画速度"
+                        min={ISLAND_ANIM_SPEED_MIN}
+                        max={ISLAND_ANIM_SPEED_MAX}
+                        step={10}
+                        value={settings.ui.islandAnimationSpeed}
+                        onChange={(e) =>
+                          applyDraft({
+                            ...settings.ui,
+                            islandAnimationSpeed: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
 
                   {settings.ui.islandIdleContent === 'animation' && (
-                    <section className="island-settings-section">
-                      <h3>默认形态</h3>
-                      <div className="island-shape-options" role="radiogroup" aria-label="默认形态">
+                    <div className="island-shape-block">
+                      <span className="island-card-label">默认形态</span>
+                      <div
+                        className="island-shape-options"
+                        role="radiogroup"
+                        aria-label="默认形态"
+                      >
                         {IDLE_SHAPES.map(({ value, label }) => {
                           const active = settings.ui.islandIdleShape === value
                           return (
@@ -889,118 +1120,55 @@ export default function SettingsView({
                           )
                         })}
                       </div>
-                      <label className="field card-alpha-field island-inset-field">
-                        <span>
-                          两侧距离
-                          <span className="mono card-alpha-value">
-                            {settings.ui.islandShapeInset}px
-                          </span>
-                        </span>
-                        <Range
-                          aria-label="两侧距离"
-                          min={ISLAND_SHAPE_INSET_MIN}
-                          max={ISLAND_SHAPE_INSET_MAX}
-                          step={1}
-                          value={settings.ui.islandShapeInset}
-                          onChange={(e) =>
-                            applyDraft({
-                              ...settings.ui,
-                              islandShapeInset: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                      <label className="field card-alpha-field island-inset-field">
-                        <span>
-                          按钮间距
-                          <span className="mono card-alpha-value">
-                            {settings.ui.islandShapeActionGap}px
-                          </span>
-                        </span>
-                        <Range
-                          aria-label="按钮间距"
-                          min={ISLAND_SHAPE_ACTION_GAP_MIN}
-                          max={ISLAND_SHAPE_ACTION_GAP_MAX}
-                          step={1}
-                          value={settings.ui.islandShapeActionGap}
-                          onChange={(e) =>
-                            applyDraft({
-                              ...settings.ui,
-                              islandShapeActionGap: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                    </section>
-                  )}
 
-                  <section className="island-settings-section">
-                    <h3>外发光</h3>
-                    <div className="island-settings-grid">
-                      <label className="field">
-                        <span>外发光</span>
-                        <Segmented
-                          ariaLabel="外发光"
-                          value={settings.ui.islandGlow ? 'on' : 'off'}
-                          options={[
-                            { value: 'on', label: '开启' },
-                            { value: 'off', label: '关闭' },
-                          ]}
-                          onChange={(value) =>
-                            applyDraft({
-                              ...settings.ui,
-                              islandGlow: value === 'on',
-                            })
-                          }
-                        />
-                      </label>
-
-                      {settings.ui.islandGlow && (
-                        <ColorField
-                          label="默认发光颜色"
-                          value={settings.ui.islandGlowColor}
-                          onChange={(value) =>
-                            applyDraft({ ...settings.ui, islandGlowColor: value })
-                          }
-                        />
-                      )}
-
-                      {settings.ui.islandGlow && (
-                        <label className="field card-alpha-field island-glow-range-field">
+                      <div className="island-card-row is-two">
+                        <label className="field card-alpha-field">
                           <span>
-                            发光范围
+                            两侧距离
                             <span className="mono card-alpha-value">
-                              {settings.ui.islandGlowRange}px
+                              {settings.ui.islandShapeInset}px
                             </span>
                           </span>
                           <Range
-                            aria-label="发光范围"
-                            min={ISLAND_GLOW_RANGE_MIN}
-                            max={ISLAND_GLOW_RANGE_MAX}
-                            step={2}
-                            value={settings.ui.islandGlowRange}
+                            aria-label="两侧距离"
+                            min={ISLAND_SHAPE_INSET_MIN}
+                            max={ISLAND_SHAPE_INSET_MAX}
+                            step={1}
+                            value={settings.ui.islandShapeInset}
                             onChange={(e) =>
                               applyDraft({
                                 ...settings.ui,
-                                islandGlowRange: Number(e.target.value),
+                                islandShapeInset: Number(e.target.value),
                               })
                             }
                           />
                         </label>
-                      )}
+
+                        <label className="field card-alpha-field">
+                          <span>
+                            按钮间距
+                            <span className="mono card-alpha-value">
+                              {settings.ui.islandShapeActionGap}px
+                            </span>
+                          </span>
+                          <Range
+                            aria-label="按钮间距"
+                            min={ISLAND_SHAPE_ACTION_GAP_MIN}
+                            max={ISLAND_SHAPE_ACTION_GAP_MAX}
+                            step={1}
+                            value={settings.ui.islandShapeActionGap}
+                            onChange={(e) =>
+                              applyDraft({
+                                ...settings.ui,
+                                islandShapeActionGap: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
                     </div>
-                  </section>
-
-                </div>
-
-                <aside className="island-settings-preview" aria-hidden="true">
-                  <span
-                    className={`island-idle${settings.ui.islandIdleContent === 'animation' ? ' island-idle-anim' : ''}${settings.ui.islandGlow ? ' is-glowing' : ''}`}
-                    style={islandPreviewStyle}
-                  >
-                    {islandPreviewVisual}
-                  </span>
-                </aside>
+                  )}
+                </section>
               </div>
             </div>
           </div>
@@ -1014,13 +1182,14 @@ export default function SettingsView({
             </div>
             <div className="panel-body">
               <div className="grid-2">
-                <div className="field">
-                  <label>PyPI 镜像</label>
-                  <TextInput
-                    aria-label="PyPI 镜像" value={settings.mirrors.pypi ?? ''}
-                    onChange={(e) => setMirror('pypi', e.target.value)}
-                  />
-                </div>
+                <MirrorField
+                  label="PyPI 镜像"
+                  ariaLabel="PyPI 镜像"
+                  value={settings.mirrors.pypi}
+                  presets={PYPI_MIRRORS}
+                  placeholder="官方源"
+                  onChange={(value) => setMirror('pypi', value)}
+                />
                 <div className="field">
                   <label>HuggingFace 镜像</label>
                   <TextInput
@@ -1029,17 +1198,14 @@ export default function SettingsView({
                     onChange={(e) => setMirror('hf', e.target.value)}
                   />
                 </div>
-                <div className="field">
-                  <label>PyTorch 镜像</label>
-                  <TextInput
-                    aria-label="PyTorch 镜像" value={settings.mirrors.torch ?? ''}
-                    onChange={(e) => setMirror('torch', e.target.value)}
-                  />
-                  <span className="hint">
-                    填镜像根地址即可，安装时自动补当前引擎的 cu130 / cpu 目录。留空用官方源。
-                    国内 PyTorch 镜像可能缺少对应 CUDA 目录，或对大 wheel 限速；下载超时请清空此项。
-                  </span>
-                </div>
+                <MirrorField
+                  label="PyTorch 镜像"
+                  ariaLabel="PyTorch 镜像"
+                  value={settings.mirrors.torch}
+                  presets={TORCH_MIRRORS}
+                  placeholder="官方源"
+                  onChange={(value) => setMirror('torch', value)}
+                />
                 <div className="field">
                   <label>GitHub 加速</label>
                   <TextInput
@@ -1091,7 +1257,6 @@ export default function SettingsView({
                   showDefault
                   onError={(msg) => notify('err', msg)}
                 />
-                <span className="hint">不复制文件；新模型存到「下载落点」。</span>
               </div>
               <div className="stack" style={{ marginTop: 14, gap: 14 }}>
                 <div className="field">
@@ -1104,6 +1269,8 @@ export default function SettingsView({
                     value={settings.storage.sharedInput ?? ''}
                     spellCheck={false}
                     onChange={(e) => setStorage({ sharedInput: e.target.value.trim() || null })}
+                    onPick={() => void chooseSharedDir('input')}
+                    pickTitle="选择共享输入目录"
                     actions={
                       <Button
                         type="button"
@@ -1117,7 +1284,6 @@ export default function SettingsView({
                     openTitle="打开共享输入目录"
                     openDisabled={!settings.storage.sharedInput}
                   />
-                  <span className="hint">留空就用实例自己的目录。</span>
                 </div>
                 <div className="field">
                   <label>共享输出目录</label>
@@ -1129,6 +1295,8 @@ export default function SettingsView({
                     value={settings.storage.sharedOutput ?? ''}
                     spellCheck={false}
                     onChange={(e) => setStorage({ sharedOutput: e.target.value.trim() || null })}
+                    onPick={() => void chooseSharedDir('output')}
+                    pickTitle="选择共享输出目录"
                     actions={
                       <Button
                         type="button"
@@ -1142,7 +1310,6 @@ export default function SettingsView({
                     openTitle="打开共享输出目录"
                     openDisabled={!settings.storage.sharedOutput}
                   />
-                  <span className="hint">多人共用时文件会混在一起。</span>
                 </div>
               </div>
 
@@ -1228,7 +1395,7 @@ export default function SettingsView({
                 </span>
               </div>
 
-              <div className="field" style={{ maxWidth: 560, marginTop: 18 }}>
+              <div className="field" style={{ marginTop: 18 }}>
                 <label>本地 Wheel 库</label>
                 <DirectoryInput
                   wrapperClassName="dir-single"
@@ -1240,7 +1407,7 @@ export default function SettingsView({
                     setSettings({ ...settings, wheels: e.target.value.trim() || null })
                   }
                   onPick={() => void chooseWheelsDir()}
-                  pickLabel="选择目录"
+                  pickTitle="选择本地 Wheel 库文件夹"
                   onOpen={() => void openShared(settings.wheels ?? null)}
                   openTitle="打开本地 Wheel 库"
                   openDisabled={!settings.wheels}

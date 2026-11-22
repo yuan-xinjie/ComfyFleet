@@ -534,7 +534,7 @@ dependencies = [
 
 [[package]]
 name = "comfyfleet"
-version = "0.1.3"
+version = "0.2.16"
 dependencies = [
  "base64 0.22.1",
  "chrono",

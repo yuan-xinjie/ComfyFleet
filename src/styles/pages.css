@@ -3,7 +3,7 @@
 button.primary { color: var(--on-accent, #fff); }
 button.primary svg { color: currentColor; }
 
-/* 实例页头：顶栏融进渐变，页签保持透明、整行居中。 */
+/* 实例页头：顶栏融进渐变，页签保持透明、整行居中???*/
 .topbar {
   height: 44px;
   min-height: 44px;
@@ -54,7 +54,7 @@ button.primary svg { color: currentColor; }
   font-weight: 500;
   z-index: 1;
 }
-/* 滑动底片：当前页签的蓝色块单独一层，切换时从旧位置滑过去。 */
+/* 滑动底片：当前页签的蓝色块单独一层，切换时从旧位置滑过去???*/
 .tab-glider {
   position: absolute;
   top: 0;
@@ -161,64 +161,97 @@ input.color-chip::-webkit-color-swatch { border: 0; border-radius: 6px; }
   align-self: end;
   padding-bottom: 2px;
 }
+.appearance-bar-follow { margin-bottom: 16px; }
+.appearance-fonts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.appearance-fonts .field { margin: 0; }
+.appearance-fonts .select-trigger { width: 100%; }
 
+.island-panel { container-type: inline-size; }
 .island-settings-body { container-type: inline-size; }
 
-.island-settings-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  align-items: start;
-  gap: 22px;
+/* 标题行右侧的实时预览：小胶囊，不参与下面的分组排???*/
+.island-head-preview {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   min-width: 0;
+  margin-left: auto;
+  padding-left: 14px;
 }
 
-.island-settings-sections {
+.island-head-preview .island-idle {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* 页内分组：第一组四组选择器，第二组滑杆和默认形态；不再套一层卡???*/
+.island-settings-groups {
   display: grid;
   gap: 18px;
   min-width: 0;
 }
 
-.island-settings-section {
+.island-group {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.island-group + .island-group {
+  padding-top: 18px;
+  border-top: 1px solid var(--line-2);
+}
+
+.island-card-row {
+  display: grid;
+  gap: 16px 24px;
+  align-items: start;
+  min-width: 0;
+}
+
+.island-card-row.is-choosers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+}
+
+.island-card-row.is-choosers > .field {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.island-card-row.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.island-card-row.is-two { grid-template-columns: repeat(2, minmax(0, 260px)); }
+.island-card-row > .card-alpha-field { grid-column: auto; }
+
+.island-shape-block {
   display: grid;
   gap: 10px;
   min-width: 0;
 }
 
-.island-settings-section + .island-settings-section {
-  padding-top: 16px;
-  border-top: 1px solid var(--line-2);
+.island-card-label { color: var(--ink-2); font-size: 11.5px; }
+
+@container (max-width: 560px) {
+  .island-head-preview { display: none; }
 }
 
-.island-settings-section h3 {
-  margin: 0;
-  color: var(--ink-4);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+@container (max-width: 640px) {
+  .island-card-row.is-three,
+  .island-card-row.is-two { grid-template-columns: minmax(0, 1fr); }
 }
 
-.island-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  align-items: start;
-  gap: 14px 18px;
-  min-width: 0;
-}
-
-.island-settings-grid > .field { min-width: 0; }
-.island-settings-grid .card-alpha-field { grid-column: auto; }
-.island-settings-grid .island-speed-field,
-.island-settings-grid .island-glow-range-field,
-.island-settings-grid .island-bottom-field { grid-column: 1 / -1; }
-
+/* 形态缩略图不铺满整行：三块???190px 左右，靠左排 */
 .island-shape-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-}
-
-.island-inset-field {
-  margin-top: 10px;
+  max-width: 590px;
 }
 
 .island-shape-option {
@@ -252,21 +285,17 @@ input.color-chip::-webkit-color-swatch { border: 0; border-radius: 6px; }
   display: grid;
   place-items: center;
   width: 100%;
-  height: 38px;
+  height: 42px;
   border-radius: 999px;
   background: #07080b;
 }
 
+/* 缩略胶囊里的图形贴着两端，和真实空闲条的位置一致???*/
 .island-shape-tile .island-shape {
-  width: 90px;
-  max-width: 100%;
+  width: 100%;
+  max-width: none;
+  padding: 0 12%;
   animation: none;
-  transform: scale(0.82);
-}
-
-.island-shape-tile .island-shape.is-chevrons,
-.island-shape-tile .island-shape.is-targets {
-  width: 74px;
 }
 
 .island-shape-tile .island-shape i {
@@ -278,39 +307,6 @@ input.color-chip::-webkit-color-swatch { border: 0; border-radius: 6px; }
   max-width: 100%;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.island-settings-preview {
-  --island-ink: #f5f6fb;
-  --island-ink-2: #aab3c9;
-  --island-blue: #8fb8ff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 210px;
-  padding: 24px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  background: var(--hover-1);
-}
-
-.island-settings-preview .island-idle {
-  max-width: 100%;
-  cursor: default;
-  pointer-events: none;
-}
-
-@container (max-width: 760px) {
-  .island-settings-layout { grid-template-columns: minmax(0, 1fr); }
-  .island-settings-preview {
-    order: -1;
-    min-height: 108px;
-    padding: 20px;
-  }
-}
-
-@container (max-width: 500px) {
-  .island-settings-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .card-alpha-field { grid-column: 1 / -1; gap: 7px; }
@@ -333,24 +329,41 @@ input.color-chip::-webkit-color-swatch { border: 0; border-radius: 6px; }
   background: transparent;
   cursor: pointer;
 }
+.card-alpha-field input[type='range']:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+/* 已选部分用蓝色填到滑块位置；填多少???Range 写进 --range-fill???*/
 .card-alpha-field input[type='range']::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
-  background: var(--hover-3);
+  background: linear-gradient(
+    to right,
+    var(--blue) 0 var(--range-fill, 0%),
+    var(--hover-3) var(--range-fill, 0%) 100%
+  );
 }
 .card-alpha-field input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  margin-top: -5px;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
   border: 2px solid var(--surface);
   border-radius: 50%;
   background: var(--blue);
   box-shadow: none;
+  transition: box-shadow 0.14s var(--ease);
 }
+/* 全局 input:focus 会给整条滑杆套一圈淡蓝框；这里把整条的清掉，只在滑块上留光圈???*/
+.card-alpha-field input[type='range']:focus,
 .card-alpha-field input[type='range']:focus-visible {
-  outline: 2px solid var(--blue-ink);
-  outline-offset: 3px;
+  outline: none;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.card-alpha-field input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 20%, transparent);
 }
 
 .theme-preview {
@@ -416,12 +429,13 @@ input.color-chip::-webkit-color-swatch { border: 0; border-radius: 6px; }
   .appearance-theme-row { align-items: flex-start; flex-direction: column; gap: 8px; }
   .appearance-card-row { grid-template-columns: 1fr; }
   .appearance-card-row .card-alpha-field { padding-bottom: 0; }
+  .appearance-fonts { grid-template-columns: 1fr; }
 }
 
 
 /* ---------------------------------------------------------------- 版本切换日志弹窗 */
 
-/* 控制台弹窗：头部/底部固定，中间那块自己滚，长输出不会把弹窗撑到整屏 */
+/* 控制台弹窗：头部/底部固定，中间那块自己滚，长输出不会把弹窗撑到整???*/
 .modal.console {
   display: flex;
   flex-direction: column;
@@ -439,7 +453,7 @@ pre.console-log {
   flex: 1 1 auto;
 }
 
-/* 概览环境条：真实值 + 重读按钮 */
+/* 概览环境条：真实???+ 重读按钮 */
 .ov-tag {
   margin-left: 6px;
   color: var(--ink-4);
@@ -468,7 +482,7 @@ pre.console-log {
   cursor: default;
 }
 
-/* 可用版本列表：日期 / 提交说明 */
+/* 可用版本列表：日???/ 提交说明 */
 .tag-row .tag-date {
   color: var(--ink-3);
   font-size: 11.5px;
@@ -489,7 +503,7 @@ pre.console-log {
   border-bottom: 1px solid var(--line-2);
   background: rgba(255, 255, 255, 0.012);
 }
-/* ── 启动参数页 ───────────────────────────────────────────── */
+/* ── 启动参数???───────────────────────────────────────────── */
 .launch-head {
   display: flex;
   align-items: center;
@@ -511,7 +525,7 @@ pre.console-log {
   padding: 3px 7px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  background: var(--sunken);
+  background: var(--card);
   color: var(--ink-3);
   font-size: 11.5px;
 }
@@ -528,90 +542,228 @@ pre.console-log {
   font-size: 12px;
   line-height: 1.7;
 }
-/* 启动参数页：大标题下保留一条线，section / 参数组之间不画线；说明直接一行 */
+/* 启动参数页：大标题下保留一条线，section / 参数组之间不画线；说明直接一???*/
 .launch-args .panel-head {
   border-bottom: 1px solid var(--line-2);
 }
-.launch-args .settings-body section h3,
-.launch-args .flag-group {
+@media (max-height: 640px) {
+  .launch-args { padding-bottom: 64px; }
+}
+.launch-args .settings-body > section { min-width: 0; }
+.launch-args .settings-body section h3 {
   border-top: 0;
   border-bottom: 0;
 }
 .launch-args .settings-body section h3 { padding-bottom: 0; }
-.launch-args .flag-block.cluster {
-  border-left: 0;
-  padding-left: 0;
+/* 服务与网络：三个字段同排，端口最短，CORS 约半行、给长来源留空间 */
+.launch-network {
+  display: grid;
+  grid-template-columns: 35fr 10fr 55fr;
+  gap: 12px;
+  align-items: end;
 }
-.launch-args-hint {
-  margin: 0;
-  max-width: none;
+.launch-network .field { margin: 0; }
+.launch-network .launch-port input { text-align: left; font-variant-numeric: tabular-nums; }
+.launch-network .launch-cors input { width: 100%; }
+@media (max-width: 760px) {
+  .launch-network { grid-template-columns: minmax(0, 1fr) 110px; }
+  .launch-network .launch-cors { grid-column: 1 / -1; }
+}
+
+/* 可选参数：分类用顶部横排筛选，内容只显示当前分类；类内先选择后开???*/
+.launch-advanced {
+  flex: 0 0 auto;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+.launch-optional-head { flex-wrap: wrap; }
+.launch-warn-badge { margin-left: 6px; }
+.launch-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.launch-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.launch-filter.active {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--on-accent);
+}
+.launch-filter:focus-visible { outline: 2px solid var(--blue-ink); outline-offset: 2px; }
+.launch-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--hover-1);
+  color: var(--ink-3);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.launch-filter.active .launch-filter-count {
+  background: color-mix(in srgb, #fff 22%, transparent);
+  color: var(--on-accent);
+}
+.launch-param-groups { display: flex; flex-direction: column; gap: 18px; }
+.launch-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+.launch-choice { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.launch-choice-label {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.flag-group {
-  border-top: 1px solid var(--line);
-  padding: 10px 0 4px;
+.launch-choice.is-on .launch-choice-label { color: var(--blue-ink); }
+.launch-choice-controls { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.launch-choice-select { flex: 1 1 auto; min-width: 0; }
+.launch-choice-select .select-trigger {
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  line-height: 1.4;
 }
-.flag-group:first-of-type { border-top: 0; }
-.flag-group-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 4px;
+.launch-choice-controls .flag-value { flex: 0 0 auto; }
+.launch-args .launch-choice-controls .flag-value input { width: 52px; }
+.launch-args .launch-choice-controls .flag-value .select { width: 90px; }
+.launch-inline-select { flex: 0 0 auto; }
+.launch-inline-select .select-trigger {
+  width: 180px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
 }
-.flag-group-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink-2);
-}
+.launch-curated { gap: 16px; }
+.flag-list { display: flex; flex-direction: column; }
 .flag-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 30px;
-  padding: 3px 8px;
-  border-radius: 6px;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+  padding: 10px 0;
 }
-.flag-row:hover { background: var(--hover, rgba(255, 255, 255, 0.03)); }
-.flag-row.on { background: var(--sunken-1, rgba(255, 255, 255, 0.04)); }
-.flag-row input[type='checkbox'] {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 auto;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.flag-body {
+.flag-copy {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
   flex: 1 1 auto;
   min-width: 0;
-  cursor: pointer;
+  flex-direction: column;
+  gap: 3px;
+}
+.flag-row-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 .flag-name {
-  font-size: 12px;
-  color: var(--ink-1);
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.flag-name.risky { color: var(--orange); }
 .flag-help {
-  font-size: 12px;
+  max-width: 72ch;
+  margin: 0;
   color: var(--ink-3);
-  line-height: 1.5;
-}
-.flag-value { flex: 0 0 auto; display: flex; }
-.flag-value input,
-.flag-value select {
-  height: 26px;
   font-size: 12px;
-  width: 110px;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
-.flag-value input[type='text'] { width: 200px; }
+.flag-row.is-on .flag-name { color: var(--blue-ink); font-weight: 500; }
+.flag-row.is-on .flag-help { color: var(--ink-2); }
+.flag-name.risky { color: var(--orange); }
+.flag-toggle {
+  flex: 0 0 auto;
+  width: auto;
+  align-items: center;
+}
+.flag-toggle .switch-track { margin-top: 0; }
+.flag-value { flex: 0 0 auto; display: flex; align-self: center; }
+.flag-value-slot { display: flex; flex: 0 0 auto; align-items: center; min-width: 0; }
+.flag-value-slot.is-number { width: 100px; }
+.flag-value-slot.is-text,
+.flag-value-slot.is-select { width: 160px; }
+.flag-value .select { width: 160px; }
+.launch-args .flag-value input {
+  width: 100px;
+  height: 34px;
+  min-height: 34px;
+  padding: 6px 9px;
+  font-size: 13px;
+}
+.launch-args .flag-value input[type='text'] { width: 160px; }
+.launch-args .flag-value .select-trigger {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+.launch-search-results { display: flex; flex-direction: column; gap: 22px; }
+.launch-search-group { min-width: 0; }
+.launch-search-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+@media (max-width: 900px) {
+  .launch-choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .flag-row { flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; }
+  .flag-copy { flex: 1 1 100%; }
+  .flag-row-control { width: 100%; justify-content: flex-end; }
+}
+@media (max-width: 640px) {
+  .launch-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .launch-choice-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .cmd-preview {
   margin: 0;
   padding: 10px 12px;
   border-radius: 6px;
-  background: var(--sunken-1, rgba(0, 0, 0, 0.25));
+  background: var(--card);
   border: 1px solid var(--line);
   color: var(--ink-2);
   font-family: var(--mono, ui-monospace, Consolas, monospace);
@@ -620,7 +772,7 @@ pre.console-log {
   white-space: pre-wrap;
   word-break: break-all;
 }
-/* 启动命令区：左边写、右边立刻看到结果 */
+/* 启动命令区：左边写、右边立刻看到结???*/
 .cmd-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -638,26 +790,8 @@ pre.console-log {
   .cmd-grid { grid-template-columns: 1fr; }
 }
 
-/* 互斥组：单独圈一块，标题写明只能选一个，不再和普通开关混成一串 */
-.flag-block + .flag-block { margin-top: 14px; }
-.flag-block.cluster {
-  border-left: 2px solid var(--line);
-  padding: 2px 0 2px 10px;
-  margin: 4px 0 10px;
-}
-.flag-block-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 2px 0 2px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-.flag-block-head .hint { margin: 0; font-weight: 400; }
 .launch-warn { margin-top: 12px; }
-/* ---------------------------------------------------------------- 存储页
-   模型目录列表：一行一个目录，路径占满、类型紧跟，右侧是状态与操作 */
+/* ---------------------------------------------------------------- 存储???   模型目录列表：一行一个目录，路径占满、类型紧跟，右侧是状态与操作 */
 .dir-list { display: flex; flex-direction: column; gap: 8px; }
 .dir-empty {
   padding: 10px 12px;
@@ -693,11 +827,11 @@ pre.console-log {
 }
 .dir-actions .hint { margin: 0; }
 
-/* 单个目录：输入框 + 两个小按钮 */
+/* 单个目录：输入框 + 两个小按???*/
 .dir-single { display: flex; align-items: center; gap: 8px; }
 .dir-single input { flex: 1 1 auto; min-width: 0; }
 
-/* 一行生效目录 */
+/* 一行生效目???*/
 .eff-list { display: flex; flex-direction: column; gap: 6px; }
 .eff-row {
   display: flex;
@@ -705,7 +839,7 @@ pre.console-log {
   gap: 8px;
   padding: 5px 8px;
   border-radius: 6px;
-  background: var(--sunken, rgba(255, 255, 255, 0.03));
+  background: var(--card);
 }
 .eff-row .eff-path {
   flex: 1 1 auto;
@@ -727,8 +861,8 @@ pre.console-log {
 .eff-more summary:hover { color: var(--ink); }
 .eff-more .cmd-preview { max-height: 220px; overflow: auto; }
 
-/* 勾选行：说明跟在标题下面，不用再挤一行 hint */
-/* 用 .panel-body > 提高优先级：那里有 .panel-body > label { display: grid } */
+/* 勾选行：说明跟在标题下面，不用再挤一???hint */
+/* ???.panel-body > 提高优先级：那里???.panel-body > label { display: grid } */
 .panel-body > label.check-row,
 .check-row {
   display: flex;
@@ -740,7 +874,7 @@ pre.console-log {
 .check-row input { margin-top: 3px; }
 .check-row .hint { display: block; margin: 2px 0 0; }
 
-/* 共享目录逐项勾选：只对本实例生效 */
+/* 共享目录逐项勾选：只对本实例生???*/
 .share-pick {
   display: grid;
   gap: 6px;
@@ -770,7 +904,7 @@ pre.console-log {
 .share-row.off .badge { opacity: 0.55; }
 .share-row .badge { flex: 0 0 auto; }
 
-/* 勾选框行：整行可点，悬停给一点反馈 */
+/* 勾选框行：整行可点，悬停给一点反???*/
 .check-row,
 .share-row {
   border-radius: 6px;
@@ -783,10 +917,9 @@ pre.console-log {
 .check-row input,
 .share-row input { margin-top: 1px; }
 /* ============================================================
-   V9 — 极简顶栏 + 常驻底栏
+   V9 ???极简顶栏 + 常驻底栏
    顶栏只留全局设置与窗口按钮；页面信息、实例操作与设置保存
-   全部收进底栏。底栏是布局的一部分，不盖住滚动内容。
-   ============================================================ */
+   全部收进底栏。底栏是布局的一部分，不盖住滚动内容???   ============================================================ */
 
 .topbar {
   display: grid;
@@ -832,7 +965,7 @@ pre.console-log {
   color: var(--silver);
 }
 
-/* 顶栏操作：图标 + 文字，避免只有图标时靠猜 */
+/* 顶栏操作：图???+ 文字，避免只有图标时靠猜 */
 .topbar-right { gap: 4px; }
 .topbar-action {
   display: inline-flex;
@@ -861,7 +994,7 @@ pre.console-log {
   color: var(--ink-4);
   transition: color 0.15s var(--ease);
 }
-/* Inter 的固定行高会把回退的中文字形顶高约 2px；交给字体自己的行高，和图标同轴 */
+/* 西文字体的固定行高会把回退的中文字形顶高约 2px；交给字体自己的行高，和图标同轴 */
 .topbar-action span {
   line-height: normal;
 }
@@ -873,14 +1006,13 @@ pre.console-log {
 .topbar-action:hover:not(:disabled) svg { color: var(--blue-ink); }
 .topbar-action:active:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
-  transform: translateY(1px);
 }
 .topbar-action:focus-visible {
   outline: 2px solid var(--blue-ring);
   outline-offset: 1px;
 }
 
-/* 窗口按钮：从贴边的直角块改成独立圆角按钮，悬浮时有明确的底色和描边 */
+/* 窗口按钮：从贴边的直角块改成独立圆角按钮，悬浮时有明确的底色和描???*/
 .win-controls {
   gap: 4px;
   align-self: stretch;
@@ -914,7 +1046,6 @@ pre.console-log {
 }
 .win-btn:active:not(:disabled) {
   background: rgba(255, 255, 255, 0.11);
-  transform: scale(0.94);
 }
 .win-btn.close:hover:not(:disabled) {
   background: var(--coral-wash);
@@ -927,10 +1058,18 @@ pre.console-log {
 }
 
 .bottombar {
+  --ink: var(--bar-ink);
+  --ink-2: var(--bar-ink-2);
+  --ink-3: var(--bar-ink-3);
+  --ink-4: var(--bar-ink-4);
+  --silver: var(--bar-ink);
+  --silver-2: var(--bar-ink-2);
+  --silver-3: var(--bar-ink-3);
+  --blue-ink: var(--bar-blue-ink);
   flex: none;
-  min-height: 48px;
-  border-top: 1px solid var(--line);
-  background: rgba(9, 11, 20, 0.36);
+  height: 48px;
+  background: var(--bar);
+  color: var(--bar-ink);
   z-index: 4;
 }
 
@@ -980,8 +1119,7 @@ pre.console-log {
   }
 }
 
-/* 首页底栏是状态栏：本机硬件在左，数据目录与版本在右。
-   实例页底栏放操作，两者共用同一条 48px 底座。 */
+/* 首页底栏是状态栏：本机硬件在左，数据目录与版本在右???   实例页底栏放操作，两者共用同一???48px 底座???*/
 .home-status {
   gap: 10px;
   color: var(--ink-3);
@@ -1002,6 +1140,13 @@ pre.console-log {
   border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 0 3px var(--green-wash);
+}
+.home-status-live-label,
+.home-status-fact,
+.home-status-sep,
+.home-status-version {
+  /* 状态栏是单行文字，同样按中文墨迹下移 1px；圆点不跟着偏。 */
+  transform: translateY(1px);
 }
 .home-status-fact {
   min-width: 0;
@@ -1043,10 +1188,14 @@ pre.console-log {
   border-color: var(--line);
   color: var(--silver);
 }
+/* 底栏图标文字按钮与纯文字按钮统一走同一套光学校正。 */
+.bottombar .icon-text-btn-label {
+  transform: translateY(1px);
+}
 
-.bottombar .primary,
-.bottombar .ghost,
-.bottombar .danger {
+.bottombar button.primary,
+.bottombar button.ghost,
+.bottombar button.danger {
   height: 32px;
   padding: 0 14px;
   gap: 7px;
@@ -1061,9 +1210,9 @@ pre.console-log {
     opacity 180ms var(--ease-out),
     transform 160ms var(--ease-out);
 }
-.bottombar .primary > svg,
-.bottombar .ghost > svg,
-.bottombar .danger > svg {
+.bottombar button.primary > svg,
+.bottombar button.ghost > svg,
+.bottombar button.danger > svg {
   width: 14px;
   height: 14px;
   flex: none;
@@ -1073,9 +1222,9 @@ pre.console-log {
 .bottombar .bottombar-stop {
   min-width: 104px;
 }
-.bottombar .primary:disabled,
-.bottombar .ghost:disabled,
-.bottombar .danger:disabled {
+.bottombar button.primary:disabled,
+.bottombar button.ghost:disabled,
+.bottombar button.danger:disabled {
   background: rgba(255, 255, 255, 0.02);
   border-color: var(--line-2);
   color: var(--ink-4);
@@ -1154,7 +1303,7 @@ pre.console-log {
   }
 }
 
-/* ---------------------------------------------------------- 快照（对齐 ComfyUI Desktop 时间线） */
+/* ---------------------------------------------------------- 快照（对???ComfyUI Desktop 时间线） */
 
 .snap-page { gap: 14px; min-width: 0; }
 .snap-page > * { min-width: 0; }
@@ -1171,7 +1320,7 @@ input.snap-label {
 }
 .snap-save-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 
-/* 轨道：左侧竖线 + 圆点，第一个节点是「创建快照」 */
+/* 轨道：左侧竖???+ 圆点，第一个节点是「创建快照???*/
 .snap-rail { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .snap-node { position: relative; padding-left: 24px; min-width: 0; }
 .snap-node:not(:last-child)::before {
@@ -1205,7 +1354,7 @@ input.snap-label {
 
 .snap-node-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
-/* 首节点盒子 */
+/* 首节点盒???*/
 .snap-save-label { font-size: 12px; color: var(--ink-3); }
 .snap-save-box {
   display: grid;
@@ -1229,16 +1378,21 @@ input.snap-label {
   padding: 0 16px;
   border-radius: var(--r-md);
   border: 1px solid var(--line-2);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--ink-1);
+  background: var(--card-surface);
+  color: var(--ink);
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.16s var(--ease-out), border-color 0.16s var(--ease-out);
 }
-.snap-cta:hover:not(:disabled) { background: rgba(255, 255, 255, 0.075); border-color: rgba(255, 255, 255, 0.075); }
-.snap-cta:disabled { opacity: 0.5; cursor: default; }
+.snap-cta:hover:not(:disabled) { background: var(--card-hover); border-color: var(--line-2); }
+.snap-cta:disabled {
+  background: var(--card-sunken);
+  border-color: var(--line-2);
+  color: var(--ink-4);
+  cursor: default;
+}
 
 /* 行头 */
 .snap-row-head {
@@ -1329,20 +1483,7 @@ input.snap-label {
 .snap-op .row { flex-wrap: wrap; }
 button.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 28%, var(--line)); }
 button.danger:hover:not(:disabled) { background: var(--red-wash); }
-.snap-tag {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--ink-3);
-}
-.snap-inventory-body { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 0 0 17px; }
-.snap-inventory summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11.5px; color: var(--ink-3); list-style: none; }
-.snap-inventory summary::-webkit-details-marker { display: none; }
-.snap-inventory summary:hover { color: var(--ink-2); }
-
-/* 折叠差异（Desktop 的 What changed / Changes on restore） */
+/* 折叠差异（Desktop ???What changed / Changes on restore???*/
 .snap-acc { display: block; }
 .snap-acc-trigger {
   display: flex;
@@ -1358,9 +1499,8 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   cursor: pointer;
 }
 .snap-acc-trigger:hover { color: var(--ink-2); }
-.snap-acc-caret { display: inline-flex; transition: transform 0.16s var(--ease-out); }
-.snap-acc.is-open .snap-acc-caret,
-.snap-inventory[open] > summary .snap-acc-caret { transform: rotate(90deg); }
+.snap-acc-caret { display: inline-flex; transform: rotate(-90deg); transition: transform 0.16s var(--ease-out); }
+.snap-acc.is-open .snap-acc-caret { transform: rotate(0deg); }
 
 .snap-diff { display: grid; gap: 10px; padding: 2px 0 2px 17px; }
 .snap-diff-sec { display: grid; gap: 3px; }
@@ -1388,7 +1528,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
 .snap-diff-loading { font-size: 11.5px; color: var(--ink-4); padding-left: 17px; }
 .snap-empty { font-size: 12px; color: var(--ink-4); padding: 6px 0 0 24px; }
 
-/* 恢复确认：从时间线动作直接开弹窗，不再在页头插一张卡片。 */
+/* 恢复确认：从时间线动作直接开弹窗，不再在页头插一张卡片???*/
 .modal.snap-restore-modal { width: min(760px, 100%); }
 .snap-restore-target {
   display: flex;
@@ -1429,7 +1569,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
 .snap-restore-modal .modal-foot .hint { font-size: 10.5px; }
 .snap-opts { display: grid; gap: 2px; }
 
-/* 恢复前缺 wheel 的清单：补文件/跳过的确认框 */
+/* 恢复前缺 wheel 的清单：补文???跳过的确认框 */
 .snap-missing-wheels {
   display: grid;
   gap: 7px;
@@ -1446,7 +1586,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   padding: 9px 11px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
-  background: var(--sunken);
+  background: var(--card-surface);
 }
 .snap-missing-name {
   display: flex;
@@ -1471,7 +1611,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   word-break: break-all;
 }
 
-/* 恢复进度卡（放在「创建快照」槽位里） */
+/* 恢复进度卡（放在「创建快照」槽位里???*/
 .snap-op { display: grid; gap: 8px; min-width: 0; }
 .snap-op-target { margin: 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
 .snap-op-barhead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 11px; color: var(--ink-3); min-width: 0; }
@@ -1491,7 +1631,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
 .snap-report-warn { font-size: 11.5px; color: var(--orange); overflow-wrap: anywhere; }
 .snap-report-note { font-size: 11.5px; color: var(--ink-4); overflow-wrap: anywhere; }
 
-/* 操作详情：从任务条展开的底部窗口，和控制台保持同一种展开方式。 */
+/* 操作详情：从任务条展开的底部窗口，和控制台保持同一种展开方式???*/
 .op-dock-layer {
   position: fixed;
   inset: 0;
@@ -1532,7 +1672,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   }
 }
 
-/* 恢复执行详情：进度、结果与控制台放在同一个窗口。 */
+/* 恢复执行详情：进度、结果与控制台放在同一个窗口???*/
 .modal.op-run-modal {
   display: flex;
   flex-direction: column;
@@ -1541,7 +1681,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   max-height: calc(100vh - 40px);
   overflow: hidden;
 }
-/* 已完成的操作按内容收口，不再留一大块空白。 */
+/* 已完成的操作按内容收口，不再留一大块空白???*/
 .modal.op-run-modal.is-done {
   height: auto;
   min-height: 0;
@@ -1829,6 +1969,7 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   font-size: 11.5px;
   line-height: 1.65;
   scrollbar-gutter: stable;
+  overflow-anchor: none;
   animation: op-run-console-in 0.22s var(--ease-out) both;
 }
 .op-run-console-empty { padding: 6px 20px 0; color: var(--ink-4); }
@@ -1941,6 +2082,8 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   background: var(--card);
 }
 .settings-nav {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1955,12 +2098,25 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
   font-size: 12.5px;
   text-align: left;
   cursor: pointer;
+  transition: color 140ms var(--ease);
 }
-.settings-nav:hover { background: rgba(255, 255, 255, 0.04); color: var(--ink-2); }
+.settings-nav:not(.active):hover { background: rgba(255, 255, 255, 0.04); color: var(--ink-2); }
 .settings-nav.active {
-  background: var(--blue-wash);
-  border-color: color-mix(in srgb, var(--blue) 26%, transparent);
   color: var(--ink);
+}
+/* 选中态是一块在选项之间上下滑动的底片：???transform 平移，不改动任何布局???   行高 34px + 间距 2px = 每格 36px，与 .settings-rail ???padding 6px 对齐???*/
+.settings-nav-glider {
+  position: absolute;
+  z-index: 0;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--blue) 26%, transparent);
+  border-radius: 8px;
+  background: var(--blue-wash);
+  pointer-events: none;
+  transition: transform 200ms var(--ease-out);
 }
 .settings-nav .icon { flex: none; color: var(--ink-4); }
 .settings-nav.active .icon { color: var(--blue-ink); }
@@ -1977,4 +2133,10 @@ button.danger:hover:not(:disabled) { background: var(--red-wash); }
     padding: 5px;
   }
   .settings-nav { width: auto; flex: 0 0 auto; padding: 0 12px; }
+  /* 横排时底片没有“上下”方向，退回每一项自己画选中底???*/
+  .settings-nav-glider { display: none; }
+  .settings-nav.active {
+    background: var(--blue-wash);
+    border-color: color-mix(in srgb, var(--blue) 26%, transparent);
+  }
 }

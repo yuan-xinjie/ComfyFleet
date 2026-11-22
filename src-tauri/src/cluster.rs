@@ -2292,12 +2292,35 @@ fn get_json_timeout<R: DeserializeOwned>(
         .map_err(|e| AppError::new("CLUSTER_HTTP", format!("{path} 返回无效 JSON：{e}")))
 }
 
-fn normalize_host(raw: &str) -> String {
-    raw.trim()
+fn normalize_host(raw: &str) -> Result<String, AppError> {
+    let raw = raw.trim();
+    // 局域网协议目前只有明文 HTTP。不能把 https:// 静默降级成 http://：
+    // 用户以为走了加密，实际密码和成员 token 会明文过网。
+    if raw.to_ascii_lowercase().starts_with("https://") {
+        return Err(AppError::new(
+            "CLUSTER_TLS",
+            "局域网同步暂不支持 HTTPS，Leader 地址请填 IP 或主机名",
+        ));
+    }
+    let host = raw
         .trim_start_matches("http://")
-        .trim_start_matches("https://")
+        .trim_start_matches("HTTP://")
+        .trim_start_matches("Http://")
         .trim_end_matches('/')
-        .to_string()
+        .to_string();
+    let ipv6 = host.starts_with('[') && host.ends_with(']');
+    let invalid = host.is_empty()
+        || host.chars().any(|c| c.is_whitespace() || c.is_control())
+        || host.contains(['/', '\\', '?', '#', '@'])
+        // 端口由单独字段提供；主机名里带 :port 会拼出两个端口。
+        || (host.contains(':') && !ipv6);
+    if invalid {
+        return Err(AppError::new(
+            "CLUSTER_HOST",
+            "Leader 地址只填 IP 或主机名，不要带路径或协议",
+        ));
+    }
+    Ok(host)
 }
 
 pub fn join_cluster(
@@ -2318,10 +2341,7 @@ pub fn join_cluster(
             "本机已加入集群，先退出再加入",
         ));
     }
-    let host = normalize_host(host);
-    if host.is_empty() {
-        return Err(AppError::new("CLUSTER_HOST", "Leader 地址不能为空"));
-    }
+    let host = normalize_host(host)?;
     if password.is_empty() {
         return Err(AppError::new("CLUSTER_PASSWORD", "密码不能为空"));
     }
@@ -2364,8 +2384,22 @@ pub fn join_cluster(
             ),
         ));
     }
+    // 迭代次数和 salt 来自未认证的 Leader 响应：不设上限的话，恶意主机
+    // 可以用 u32::MAX 次 PBKDF2 把成员端 CPU 拖死。
+    if !(10_000..=1_000_000).contains(&begin.iterations) {
+        return Err(AppError::new(
+            "CLUSTER_JOIN",
+            "Leader 返回的 PBKDF2 迭代次数不在安全范围",
+        ));
+    }
     let salt = hex::decode(&begin.salt)
         .map_err(|_| AppError::new("CLUSTER_JOIN", "Leader 返回了无效 salt"))?;
+    if !(8..=64).contains(&salt.len()) {
+        return Err(AppError::new(
+            "CLUSTER_JOIN",
+            "Leader 返回的 salt 长度不安全",
+        ));
+    }
     let key = pbkdf2(password, &salt, begin.iterations);
     let proof = proof_for(&key, &begin.nonce, &name);
     let resp: JoinResp = post_json(
@@ -3482,6 +3516,20 @@ mod tests {
         let view = leader_view(&cfg);
         assert_eq!(view.addresses, vec!["127.0.0.1:47821".to_string()]);
         assert!(!view.allow_lan);
+    }
+
+    #[test]
+    fn leader_host_never_silently_downgrades_tls() {
+        assert_eq!(normalize_host("192.168.1.10").unwrap(), "192.168.1.10");
+        assert_eq!(
+            normalize_host("http://192.168.1.10/").unwrap(),
+            "192.168.1.10"
+        );
+        assert!(normalize_host("https://192.168.1.10").is_err());
+        assert!(normalize_host("192.168.1.10/path").is_err());
+        assert!(normalize_host("user@192.168.1.10").is_err());
+        assert!(normalize_host("192.168.1.10:8188").is_err());
+        assert_eq!(normalize_host("[::1]").unwrap(), "[::1]");
     }
 
     #[test]

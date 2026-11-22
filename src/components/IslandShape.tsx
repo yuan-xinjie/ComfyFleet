@@ -71,16 +71,30 @@ export function IslandTarget({ side }: { side: 'left' | 'right' }) {
   return <span className={`island-target is-${side}`} aria-hidden="true" />
 }
 
-/** 旧设置里可能还存着已删除的圆点形态；统一落到箭头。 */
-export function normalizeIslandShape(shape: unknown): IslandIdleShape {
-  return shape === 'targets' ? 'targets' : 'chevrons'
+/** 空闲形态里单独渲染的一侧眼睛；展开显示按钮时仍保留。 */
+export function IslandEye({ side }: { side: 'left' | 'right' }) {
+  return <span className={`island-eye is-${side}`} aria-hidden="true" />
 }
 
-/** 无任务灵动岛的两种默认形态。 */
+/** 旧设置里可能还存着已删除的圆点形态；统一落到箭头。 */
+export function normalizeIslandShape(shape: unknown): IslandIdleShape {
+  return shape === 'targets' || shape === 'eyes' ? shape : 'chevrons'
+}
+
+/** 无任务灵动岛的默认形态。 */
 export function IslandShape({ shape }: { shape: IslandIdleShape }) {
   if (shape === 'targets') {
     return (
       <span className="island-shape is-targets" aria-hidden="true">
+        <i />
+        <i />
+      </span>
+    )
+  }
+
+  if (shape === 'eyes') {
+    return (
+      <span className="island-shape is-eyes" aria-hidden="true">
         <i />
         <i />
       </span>

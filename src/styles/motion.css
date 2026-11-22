@@ -5,7 +5,6 @@
    ============================================================ */
 
 :root {
-  --motion-press: 90ms;
   --motion-ui: 180ms;
   --motion-focus: 220ms;
   /* 焦点光环从中间状态慢慢落位，不用全局那种前 30ms 就冲完的强 ease-out。 */
@@ -37,7 +36,6 @@ textarea,
 .badge,
 .node-row,
 .tag-row,
-.flag-row,
 .share-row,
 .check-row,
 .cluster-client,
@@ -47,8 +45,7 @@ textarea,
 .snap-acc-trigger,
 .snap-cta,
 .hint-more > summary,
-.eff-more summary,
-.snap-inventory summary {
+.eff-more summary {
   transition-property: background-color, border-color, border-width, color, box-shadow, opacity, transform;
   transition-duration: var(--motion-ui);
   transition-timing-function: var(--ease);
@@ -126,16 +123,14 @@ textarea,
   background-color: color-mix(in srgb, var(--surface-2) 44%, #050509);
 }
 
-/* 按钮：悬停只换面色；按下时 2% 的压缩给出触感，松开自然回弹。
-   下拉 trigger 与分段选择都不压缩：前者只展开菜单，后者让底片滑动，文字不跟着变小。 */
-:where(button, .btn):not(.win-btn):not(.select-trigger):not(.seg button):not(:disabled):active {
-  transform: scale(0.97);
-  transition-duration: var(--motion-press);
+/* 按钮：悬停只换面色；按下只换底色，不做缩放，也不位移。
+   下拉 trigger 与分段选择同理：前者只展开菜单，后者让底片滑动，文字不跟着变。 */
+:where(button, .btn):not(:disabled):active {
+  transform: none;
 }
 
 .icon-btn svg,
 .tab svg,
-.dir-btn svg,
 .settings-nav svg {
   transition: transform var(--motion-ui) var(--ease), color var(--motion-ui) var(--ease);
 }
@@ -144,39 +139,12 @@ textarea,
   transform: translateY(-1px) scale(1.06);
 }
 
-.dir-btn:hover:not(:disabled) svg {
-  transform: translateX(1px);
-}
-
-.settings-nav.active svg {
-  transform: translateX(1px);
-}
-
 .info-tip {
   transition-duration: var(--motion-ui);
 }
 .info-tip:hover,
 .info-tip[aria-expanded='true'] {
   transform: scale(1.08);
-}
-
-/* 选中项“落位”一次；不循环，也不改变布局。 */
-@keyframes control-select {
-  from {
-    opacity: 0.72;
-    transform: scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.tab.active,
-.settings-nav.active,
-.seg button.active,
-.select-option[aria-selected='true'] {
-  animation: control-select var(--motion-ui) var(--ease-out);
 }
 
 /* 下拉选项：悬停和键盘高亮走同一条过渡，对勾用缩放淡入。 */
@@ -229,7 +197,6 @@ input.color-chip:hover {
 /* 行级交互（节点、标签、共享目录等）只温一层底色。 */
 .node-row,
 .tag-row,
-.flag-row,
 .share-row,
 .check-row,
 .cluster-client,
@@ -238,20 +205,14 @@ input.color-chip:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tab.active,
-  .settings-nav.active,
-  .seg button.active,
-  .seg-glider,
-  .select-option[aria-selected='true'] {
-    animation: none;
-  }
   .seg-glider {
+    transition: none;
+  }
+  .settings-nav-glider {
     transition: none;
   }
   :where(button, .btn):not(.win-btn):not(:disabled):active,
   .icon-btn:hover:not(:disabled) svg,
-  .dir-btn:hover:not(:disabled) svg,
-  .settings-nav.active svg,
   .info-tip:hover,
   .info-tip[aria-expanded='true'],
   .select-option-check,

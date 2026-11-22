@@ -20,7 +20,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * 现有调用仍可直接传 className，方便渐进迁移。
  */
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant, size = 'md', icon = false, className = '', ...rest },
+  { variant, size = 'md', icon = false, className = '', children, ...rest },
   ref,
 ) {
   const classes = [
@@ -31,7 +31,18 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   ]
     .filter(Boolean)
     .join(' ')
-  return <button ref={ref} className={classes} {...rest} />
+  // 纯文字按钮统一套一层标签，方便做中文墨迹的光学校正；带图标的按钮结构不动。
+  const label =
+    typeof children === 'string' || typeof children === 'number' ? (
+      <span className="btn-label">{children}</span>
+    ) : (
+      children
+    )
+  return (
+    <button ref={ref} className={classes} {...rest}>
+      {label}
+    </button>
+  )
 })
 
 export default Button

@@ -1,21 +1,25 @@
-import { TextInput, TextArea, Checkbox } from '../components/Form'
-import Button from '../components/Button'
+import { TextInput, TextArea } from '../components/Form'
+import IconTextButton from '../components/IconTextButton'
+import Switch from '../components/Switch'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, errText } from '../lib/api'
 import {
   ALL_FLAGS,
+  BINARY_FLAG_SWITCHES,
+  COMMON_FLAGS,
+  EXCLUSIVE_LABELS,
   FLAG_GROUPS,
   FLAG_BY_NAME,
   MANAGED_FLAGS,
-  blocksOf,
   buildLine,
   lineFlag,
   lineValue,
+  type FlagBlock,
+  type FlagGroup,
   type FlagSpec,
 } from '../lib/launchFlags'
 import type { InstanceConfig } from '../types'
 import { useTabSave, type TabSaveHandle } from '../lib/useTabSave'
-import Icon from '../components/Icon'
 import Select from '../components/Select'
 
 interface Props {
@@ -26,6 +30,75 @@ interface Props {
 }
 
 const DOCS_URL = 'https://docs.comfy.org/zh/development/comfyui-server/startup-flags'
+
+/** 高级参数关闭时直接展示的精选参数，不再要求先选分类。 */
+const CURATED_SWITCH_FLAGS = [
+  '--disable-pinned-memory',
+  '--enable-manager',
+  '--models-directory',
+  '--user-directory',
+  '--max-upload-size',
+  // 输出目录/额外模型路径由「存储」页生成，精选开关里不能再手写一份。
+].filter((flag) => !MANAGED_FLAGS.includes(flag))
+
+type CatalogEntry =
+  | { kind: 'switch'; spec: FlagSpec }
+  | { kind: 'choice'; block: FlagBlock }
+  | {
+      kind: 'boolean'
+      exclusive: string
+      label: string
+      on: FlagSpec
+      off: FlagSpec
+    }
+
+/** 分类内先放互斥选择，再放开关；两类各自保留原始顺序。 */
+function buildEntries(group: FlagGroup, visible: Set<string>): CatalogEntry[] {
+  const choices: CatalogEntry[] = []
+  const switches: CatalogEntry[] = []
+  const seenExclusive = new Set<string>()
+  for (const spec of group.flags) {
+    if (!spec.exclusive) {
+      if (visible.has(spec.flag)) switches.push({ kind: 'switch', spec })
+      continue
+    }
+    if (seenExclusive.has(spec.exclusive)) continue
+    seenExclusive.add(spec.exclusive)
+    const flags = group.flags.filter((flag) => flag.exclusive === spec.exclusive)
+    const binary = BINARY_FLAG_SWITCHES[spec.exclusive]
+    if (binary) {
+      const on = FLAG_BY_NAME.get(binary.on)
+      const off = FLAG_BY_NAME.get(binary.off)
+      if (on && off && (visible.has(on.flag) || visible.has(off.flag))) {
+        switches.push({
+          kind: 'boolean',
+          exclusive: spec.exclusive,
+          label: EXCLUSIVE_LABELS[spec.exclusive] ?? '开关',
+          on,
+          off,
+        })
+      }
+      continue
+    }
+    // 互斥组只要有一个选项命中，就把整组选择保留下来；否则用户会被困在
+    // 只看得见部分选项的下拉里。全组仍只占一行，不额外增加视觉噪音。
+    if (flags.some((flag) => visible.has(flag.flag))) {
+      choices.push({
+        kind: 'choice',
+        block: {
+          exclusive: spec.exclusive,
+          label: EXCLUSIVE_LABELS[spec.exclusive] ?? '互斥组',
+          flags,
+        },
+      })
+    }
+  }
+  return [...choices, ...switches]
+}
+
+function displayFlag(flag: string): string {
+  return flag.replace(/^--/, '')
+}
 
 /** 一行里可能写多个参数，勾选框只认第一个；展示时原样保留用户写的那行 */
 function textOf(lines: string[]): string {
@@ -70,6 +143,8 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
   /** 参数行：唯一数据源。勾选框、自定义输入、命令预览都从这一份派生 */
   const [lines, setLines] = useState<string[]>(inst.server.extraArgs)
   const [query, setQuery] = useState('')
+  const [advanced, setAdvanced] = useState(false)
+  const [activeCategory, setActiveCategory] = useState(FLAG_GROUPS[0]?.id ?? '')
   const [busy, setBusy] = useState(false)
 
   /** 参数名 → 值文本（值为空就是空串） */
@@ -87,11 +162,13 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
     const exclusive = new Map<string, string[]>()
     for (const [flag, value] of active) {
       if (MANAGED_FLAGS.includes(flag)) {
-        out.push(`${flag} 由页面上的字段生成（服务与网络 / 存储页），写在这里会出现两个同名参数`)
+        out.push(
+          `${displayFlag(flag)} 由页面上的字段生成（服务与网络 / 存储页），写在这里会出现两个同名参数`,
+        )
       }
       const spec = FLAG_BY_NAME.get(flag)
       if (spec?.value?.required && !value.trim()) {
-        out.push(`${flag} 少了值，ComfyUI 会直接报错`)
+        out.push(`${displayFlag(flag)} 少了值，ComfyUI 会直接报错`)
       }
       if (spec?.exclusive) {
         const list = exclusive.get(spec.exclusive) ?? []
@@ -100,7 +177,11 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
       }
     }
     for (const list of exclusive.values()) {
-      if (list.length > 1) out.push(`${list.join(' 与 ')} 互斥，argparse 会拒绝启动，只能留一个`)
+      if (list.length > 1) {
+        out.push(
+          `${list.map(displayFlag).join(' 与 ')} 互斥，argparse 会拒绝启动，只能留一个`,
+        )
+      }
     }
     return out
   }, [active])
@@ -158,12 +239,19 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
 
   const toggle = (spec: FlagSpec) => {
     const on = active.has(spec.flag)
+    const disablingManager = spec.flag === '--enable-manager' && on
     setLines((prev) => {
       const kept = prev
         .map((line) => {
           const flag = lineFlag(line)
           if (!flag) return line
           if (flag === spec.flag) return stripFlag(line, spec)
+          // Manager 界面选项依赖 --enable-manager；关掉总开关时一并清掉，
+          // 避免留下 argparse 接受、但界面上无法再操作的组合。
+          if (disablingManager) {
+            const other = FLAG_BY_NAME.get(flag)
+            if (other?.exclusive === 'manager_ui') return stripFlag(line, other)
+          }
           // 勾新的之前，先把互斥组里的兄弟摘掉（否则 argparse 直接报错）
           if (!on && spec.exclusive) {
             const other = FLAG_BY_NAME.get(flag)
@@ -174,6 +262,24 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
         .map((line) => line.trim())
         .filter(Boolean)
       return on ? kept : [...kept, buildLine(spec)]
+    })
+  }
+
+  /** 互斥组用下拉选择：选中一个就摘掉同组其它参数，选“默认”清空整组。 */
+  const setExclusive = (exclusive: string, flag: string) => {
+    setLines((prev) => {
+      const kept = prev
+        .map((line) => {
+          const current = lineFlag(line)
+          if (!current) return line
+          const spec = FLAG_BY_NAME.get(current)
+          return spec?.exclusive === exclusive ? stripFlag(line, spec) : line
+        })
+        .map((line) => line.trim())
+        .filter(Boolean)
+      if (!flag) return kept
+      const spec = FLAG_BY_NAME.get(flag)
+      return spec ? [...kept, buildLine(spec)] : kept
     })
   }
 
@@ -239,57 +345,325 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
   useTabSave(onSaveState, dirty, busy, save, reset, invalidPort)
 
   const q = query.trim().toLowerCase()
-  const groups = FLAG_GROUPS.map((g) => ({
-    ...g,
-    flags: q
-      ? g.flags.filter((f) => f.flag.toLowerCase().includes(q) || f.help.includes(q))
-      : g.flags,
-  })).filter((g) => g.flags.length > 0)
+  const categories = FLAG_GROUPS.map((group) => {
+    const titleHit = Boolean(q) && group.title.toLowerCase().includes(q)
+    const visible = new Set(
+      group.flags
+        .filter((spec) => {
+          if (q) {
+            return (
+              titleHit ||
+              displayFlag(spec.flag).toLowerCase().includes(q) ||
+              spec.help.toLowerCase().includes(q)
+            )
+          }
+          return advanced || COMMON_FLAGS.has(spec.flag) || active.has(spec.flag)
+        })
+        .map((spec) => spec.flag),
+    )
+    return {
+      group,
+      entries: buildEntries(group, visible),
+      count: group.flags.filter((spec) => active.has(spec.flag)).length,
+    }
+  }).filter((category) => category.entries.length > 0)
 
-  /** 一行参数：勾选框 + 参数名 + 说明（+ 需要值时给输入控件） */
-  const renderFlag = (spec: FlagSpec) => {
-    const on = active.has(spec.flag)
+  const renderValue = (spec: FlagSpec) => {
+    if (!spec.value) return null
     const value = active.get(spec.flag) ?? ''
     return (
-      <div className={`flag-row${on ? ' on' : ''}`} key={spec.flag}>
-        <Checkbox
-          type="checkbox"
-          id={`flag-${spec.flag}`}
-          aria-label={spec.flag}
-          checked={on}
-          onChange={() => toggle(spec)}
-        />
-        <label className="flag-body" htmlFor={`flag-${spec.flag}`} title={spec.help}>
-          <span className={`flag-name mono${spec.risky ? ' risky' : ''}`}>{spec.flag}</span>
-          <span className="flag-help">{spec.help}</span>
-        </label>
-        {on && spec.value && (
-          <span className="flag-value">
-            {spec.value.choices ? (
-              <Select
-                ariaLabel={`${spec.flag} 的值`}
-                value={value || spec.value.def}
-                onChange={(next) => setValue(spec, next)}
-                options={spec.value.choices.map((choice) => ({
-                  value: choice,
-                  label: choice,
-                }))}
-              />
-            ) : (
-              <TextInput
-                aria-label={`${spec.flag} 的值`}
-                type={spec.value.numeric ? 'number' : 'text'}
-                className={spec.value.numeric ? '' : 'mono'}
-                value={value}
-                placeholder={spec.value.placeholder}
-                onChange={(e) => setValue(spec, e.target.value)}
-              />
-            )}
+      <span className="flag-value">
+        {spec.value.choices ? (
+          <Select
+            ariaLabel={`${displayFlag(spec.flag)} 的值`}
+            value={value || spec.value.def}
+            onChange={(next) => setValue(spec, next)}
+            options={spec.value.choices.map((choice) => ({
+              value: choice,
+              label: choice,
+            }))}
+          />
+        ) : (
+          <TextInput
+            aria-label={`${displayFlag(spec.flag)} 的值`}
+            type={spec.value.numeric ? 'number' : 'text'}
+            className={spec.value.numeric ? '' : 'mono'}
+            value={value}
+            placeholder={spec.value.placeholder}
+            onChange={(e) => setValue(spec, e.target.value)}
+          />
+        )}
+      </span>
+    )
+  }
+
+  /**
+   * 每类参数统一成一行：左边是名字，右边是控件组。
+   * 开关和互斥选择共用同一套行骨架，不再用双列网格拼贴。
+   */
+  const renderSwitchFlag = (spec: FlagSpec) => {
+    const on = active.has(spec.flag)
+    return (
+      <div className={`flag-row${on ? ' is-on' : ''}`} key={spec.flag}>
+        <div className="flag-copy">
+          <label
+            className={`flag-name mono${spec.risky ? ' risky' : ''}`}
+            htmlFor={`flag-${spec.flag}`}
+            title={spec.help}
+          >
+            {displayFlag(spec.flag)}
+          </label>
+          <p className="flag-help">{spec.help}</p>
+        </div>
+        <div className="flag-row-control">
+          {spec.value && (
+            <span
+              className={`flag-value-slot${
+                spec.value.choices ? ' is-select' : spec.value.numeric ? ' is-number' : ' is-text'
+              }`}
+            >
+              {on && renderValue(spec)}
+            </span>
+          )}
+          <Switch
+            className="flag-toggle"
+            id={`flag-${spec.flag}`}
+            ariaLabel={displayFlag(spec.flag)}
+            title={spec.help}
+            checked={on}
+            onChange={() => toggle(spec)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  /** 开 / 关互斥组：开写 on，关写 off，不再暴露「默认」第三态。 */
+  const renderBooleanSwitch = (entry: Extract<CatalogEntry, { kind: 'boolean' }>) => {
+    const on = active.has(entry.on.flag)
+    const help = on ? entry.on.help : entry.off.help
+    return (
+      <div className={`flag-row${on ? ' is-on' : ''}`} key={`boolean-${entry.exclusive}`}>
+        <div className="flag-copy">
+          <label className="flag-name" htmlFor={`flag-${entry.exclusive}`} title={help}>
+            {entry.label}
+          </label>
+          <p className="flag-help">{help}</p>
+        </div>
+        <div className="flag-row-control">
+          <Switch
+            className="flag-toggle"
+            id={`flag-${entry.exclusive}`}
+            ariaLabel={entry.label}
+            title={help}
+            checked={on}
+            onChange={() => setExclusive(entry.exclusive, on ? entry.off.flag : entry.on.flag)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  /** Manager 界面两个选项的 flag 名太长，收起成短名，完整参数名放在弹层第二行。 */
+  const choiceOptions = (block: FlagBlock) => [
+    { value: '', label: '默认' },
+    ...block.flags.map((flag) => {
+      if (block.exclusive === 'manager_ui') {
+        const label = flag.flag === '--disable-manager-ui' ? '关闭界面' : '旧界面'
+        return {
+          value: flag.flag,
+          label,
+          trigger: label,
+          meta: displayFlag(flag.flag),
+          title: flag.help,
+        }
+      }
+      return {
+        value: flag.flag,
+        label: displayFlag(flag.flag),
+        trigger: displayFlag(flag.flag),
+        title: flag.help,
+      }
+    }),
+  ]
+
+  /** 互斥组：标签在上、选择器在下；带值的选项把值控件并排放在选择器右侧。 */
+  const renderChoice = (block: FlagBlock, disabled = false) => {
+    if (!block.exclusive) return null
+    const selected = block.flags.find((flag) => active.has(flag.flag))
+    return (
+      <div
+        className={`launch-choice${selected ? ' is-on' : ''}`}
+        key={`exclusive-${block.exclusive}`}
+      >
+        <span className="launch-choice-label" title={selected?.help ?? block.label}>
+          {block.label}
+        </span>
+        <div className="launch-choice-controls">
+          <Select
+            className="launch-choice-select"
+            ariaLabel={block.label}
+            value={selected?.flag ?? ''}
+            menuMinWidth={260}
+            disabled={disabled}
+            triggerTitle={disabled ? '先启用 ComfyUI Manager' : (selected?.help ?? block.label)}
+            onChange={(next) => setExclusive(block.exclusive!, next)}
+            options={choiceOptions(block)}
+          />
+          {selected && renderValue(selected)}
+        </div>
+      </div>
+    )
+  }
+
+  /** 精选参数里的互斥组：沿用开关行的左文右控件，避免再出现一排分组框。 */
+  const renderInlineChoice = (block: FlagBlock, disabled = false) => {
+    if (!block.exclusive) return null
+    const selected = block.flags.find((flag) => active.has(flag.flag))
+    return (
+      <div
+        className={`flag-row launch-inline-choice${selected ? ' is-on' : ''}`}
+        key={`inline-${block.exclusive}`}
+      >
+        <div className="flag-copy">
+          <span className="flag-name" title={selected?.help ?? block.label}>
+            {block.label}
           </span>
+        </div>
+        <div className="flag-row-control">
+          <Select
+            className="launch-inline-select"
+            ariaLabel={block.label}
+            value={selected?.flag ?? ''}
+            menuMinWidth={260}
+            disabled={disabled}
+            triggerTitle={disabled ? '先启用 ComfyUI Manager' : (selected?.help ?? block.label)}
+            onChange={(next) => setExclusive(block.exclusive!, next)}
+            options={choiceOptions(block)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  /** 高级参数关闭时的精选页：不渲染分类，只保留日常会动的参数。 */
+  const renderCurated = () => {
+    const blockOf = (exclusive: string): FlagBlock | null => {
+      const flags = ALL_FLAGS.filter((flag) => flag.exclusive === exclusive)
+      if (flags.length === 0) return null
+      return {
+        exclusive,
+        label: EXCLUSIVE_LABELS[exclusive] ?? '互斥组',
+        flags,
+      }
+    }
+    const vram = blockOf('vram')
+    const attention = blockOf('attn')
+    const managerUi = blockOf('manager_ui')
+    const managerOn = active.has('--enable-manager')
+    const autoPair = BINARY_FLAG_SWITCHES.autolaunch
+    const autoOn = autoPair ? FLAG_BY_NAME.get(autoPair.on) : undefined
+    const autoOff = autoPair ? FLAG_BY_NAME.get(autoPair.off) : undefined
+    const autoEntry: Extract<CatalogEntry, { kind: 'boolean' }> | null =
+      autoOn && autoOff
+        ? {
+            kind: 'boolean',
+            exclusive: 'autolaunch',
+            label: EXCLUSIVE_LABELS.autolaunch,
+            on: autoOn,
+            off: autoOff,
+          }
+        : null
+
+    const represented = new Set<string>()
+    for (const block of [vram, attention, managerUi]) {
+      block?.flags.forEach((flag) => represented.add(flag.flag))
+    }
+    if (autoOn) represented.add(autoOn.flag)
+    if (autoOff) represented.add(autoOff.flag)
+    CURATED_SWITCH_FLAGS.forEach((flag) => represented.add(flag))
+
+    // 已启用的进阶参数不能因为收起分类而消失，否则用户找不到怎么关掉。
+    const extras = [...active.keys()]
+      .filter((flag) => !represented.has(flag))
+      .map((flag) => FLAG_BY_NAME.get(flag))
+      .filter((spec): spec is FlagSpec => Boolean(spec))
+
+    const switchRow = (flag: string) => {
+      const spec = FLAG_BY_NAME.get(flag)
+      return spec ? renderSwitchFlag(spec) : null
+    }
+
+    return (
+      <div className="launch-param-groups launch-curated">
+        {(vram || attention) && (
+          <div className="launch-choice-grid">
+            {vram && renderChoice(vram)}
+            {attention && renderChoice(attention)}
+          </div>
+        )}
+        <div className="flag-list">
+          {switchRow('--disable-pinned-memory')}
+          {switchRow('--enable-manager')}
+          {managerUi && renderInlineChoice(managerUi, !managerOn)}
+          {autoEntry && renderBooleanSwitch(autoEntry)}
+          {CURATED_SWITCH_FLAGS.filter(
+            (flag) => flag !== '--disable-pinned-memory' && flag !== '--enable-manager',
+          ).map((flag) => switchRow(flag))}
+          {extras.map((spec) => renderSwitchFlag(spec))}
+        </div>
+      </div>
+    )
+  }
+
+  const renderParams = (category: (typeof categories)[number]) => {
+    const choices = category.entries.filter(
+      (entry): entry is Extract<CatalogEntry, { kind: 'choice' }> => entry.kind === 'choice',
+    )
+    const switches = category.entries.filter(
+      (entry): entry is Extract<CatalogEntry, { kind: 'switch' | 'boolean' }> =>
+        entry.kind === 'switch' || entry.kind === 'boolean',
+    )
+    return (
+      <div className="launch-param-groups">
+        {choices.length > 0 && (
+          <div className="launch-choice-grid">
+            {choices.map((entry) =>
+              entry.kind === 'choice' ? (
+                renderChoice(
+                  entry.block,
+                  entry.block.exclusive === 'manager_ui' && !active.has('--enable-manager'),
+                )
+              ) : null,
+            )}
+          </div>
+        )}
+        {switches.length > 0 && (
+          <div className="flag-list">
+            {switches.map((entry) => {
+              if (entry.kind === 'switch') return renderSwitchFlag(entry.spec)
+              if (entry.kind === 'boolean') return renderBooleanSwitch(entry)
+              return null
+            })}
+          </div>
         )}
       </div>
     )
   }
+
+  const renderSearchGroup = (category: (typeof categories)[number]) => (
+    <div className="launch-search-group" key={category.group.id}>
+      <div className="launch-search-group-head">
+        <span>{category.group.title}</span>
+        {category.count > 0 && <span className="badge ghost">{category.count}</span>}
+      </div>
+      {renderParams(category)}
+    </div>
+  )
+
+  const selectedCategory =
+    categories.find((category) => category.group.id === activeCategory) ?? categories[0]
+
   const enabledCount = ALL_FLAGS.filter((f) => active.has(f.flag)).length
 
   return (
@@ -300,10 +674,9 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
           <span className="badge ghost">{inst.name}</span>
           {dirty && <span className="badge warn">未保存</span>}
           <div className="spacer" />
-          <Button className="ghost sm" onClick={() => void api.openUrl(DOCS_URL)}>
-            <Icon name="globe" size={13} />
+          <IconTextButton className="ghost sm" onClick={() => void api.openUrl(DOCS_URL)} icon="globe" iconSize={13}>
             官方文档
-          </Button>
+          </IconTextButton>
         </header>
 
         <div className="panel-body settings-body">
@@ -318,33 +691,23 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
             <div className="field launch-custom">
               <label>自定义参数</label>
               <TextArea
-                rows={6}
+                rows={4}
                 className="mono"
                 aria-label="自定义启动参数"
                 value={customText}
-                placeholder="--enable-manager"
+                placeholder="一行一个；路径带空格用双引号"
                 onChange={(e) => setLines(e.target.value.split('\n'))}
               />
-              <p className="hint hint-show launch-args-hint">
-                一行一个；一行写多个参数时按空格切开，路径带空格用双引号。删掉一行，对应勾选也会取消。
-              </p>
             </div>
 
-            {warnings.length > 0 && (
-              <div className="banner warn launch-warn">
-                {warnings.map((w) => (
-                  <div key={w}>· {w}</div>
-                ))}
-              </div>
-            )}
           </section>
 
           <section>
             <h3>
               服务与网络 <span className="badge ghost">下次启动生效</span>
             </h3>
-            <div className="grid-2">
-              <div className="field">
+            <div className="launch-network">
+              <div className="field launch-listen">
                 <label>监听地址</label>
                 <Select
                   ariaLabel="监听地址"
@@ -356,7 +719,7 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
                   ]}
                 />
               </div>
-              <div className="field">
+              <div className="field launch-port">
                 <label>端口</label>
                 <TextInput
                   type="number"
@@ -366,14 +729,13 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
                   max={65535}
                   onChange={(e) => setPort(e.target.value)}
                 />
-
               </div>
-              <div className="field" style={{ gridColumn: '1 / -1' }}>
-                <label>CORS 允许来源（可选）</label>
+              <div className="field launch-cors">
+                <label>CORS 允许来源</label>
                 <TextInput
                   aria-label="CORS 允许来源"
                   value={corsOrigin}
-                  placeholder="留空 = 不启用跨域"
+                  placeholder="https://example.com"
                   onChange={(e) => setCorsOrigin(e.target.value)}
                 />
               </div>
@@ -381,44 +743,74 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
           </section>
 
           <section>
-            <div className="launch-head">
+            <div className="launch-head launch-optional-head">
               <h3>
                 可选参数 <span className="badge ghost">已启用 {enabledCount} 项</span>
+                {warnings.length > 0 && (
+                  <span
+                    className="badge warn launch-warn-badge"
+                    title={warnings.join('\n')}
+                    aria-label={warnings.join('；')}
+                  >
+                    警告 {warnings.length}
+                  </span>
+                )}
               </h3>
               <div className="spacer" />
+              <Switch
+                className="launch-advanced"
+                ariaLabel="高级参数"
+                checked={advanced}
+                onChange={setAdvanced}
+              >
+                <span>高级参数</span>
+              </Switch>
               <TextInput
                 className="launch-search"
                 aria-label="搜索参数"
-                placeholder="搜参数名或说明"
+                placeholder="搜索参数"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
 
-            {groups.map((group) => (
-              <div className="flag-group" key={group.id}>
-                <div className="flag-group-head">
-                  <span className="flag-group-title" title={group.note}>{group.title}</span>
-                  {group.note && <span className="hint">{group.note}</span>}
+            {q ? (
+              categories.length > 0 ? (
+                <div className="launch-search-results">{categories.map(renderSearchGroup)}</div>
+              ) : (
+                <div className="empty">
+                  <strong>没有匹配的参数</strong>
                 </div>
-                {blocksOf(group).map((block) => (
-                  <div
-                    className={`flag-block${block.exclusive ? ' cluster' : ''}`}
-                    key={`${group.id}-${block.exclusive ?? 'plain'}`}
-                  >
-                    {block.label && (
-                      <div className="flag-block-head">
-                        <span>{block.label}</span>
-                        {block.exclusive && <span className="hint">只能选一个</span>}
-                      </div>
-                    )}
-                    {block.flags.map((spec) => renderFlag(spec))}
-                  </div>
-                ))}
+              )
+            ) : !advanced ? (
+              renderCurated()
+            ) : categories.length > 0 ? (
+              <>
+                <div className="launch-filters" role="group" aria-label="参数分类">
+                  {categories.map((category) => {
+                    const on = selectedCategory?.group.id === category.group.id
+                    return (
+                      <button
+                        key={category.group.id}
+                        type="button"
+                        className={`launch-filter${on ? ' active' : ''}`}
+                        aria-pressed={on}
+                        onClick={() => setActiveCategory(category.group.id)}
+                      >
+                        <span>{category.group.title}</span>
+                        {category.count > 0 && (
+                          <span className="launch-filter-count">{category.count}</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+                {selectedCategory && renderParams(selectedCategory)}
+              </>
+            ) : (
+              <div className="empty">
+                <strong>没有匹配的参数</strong>
               </div>
-            ))}
-            {groups.length === 0 && (
-              <p className="hint">没有匹配「{query}」的参数，直接写到上面的自定义参数里就行。</p>
             )}
           </section>
         </div>

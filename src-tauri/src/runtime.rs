@@ -15,6 +15,7 @@ use parking_lot::Mutex;
 
 use crate::config::{GlobalSettings, InstanceConfig};
 use crate::error::AppError;
+use crate::progress::{self, ProgressSnapshot, ProgressState, PROGRESS_PREFIX};
 
 /// 内存里保留的日志行数（完整日志在 logs/*.log，这里只用于界面展示）。
 pub const TAIL_MAX: usize = 600;
@@ -531,6 +532,9 @@ pub struct Launch {
 /// 由命令层把事件推给界面，避免界面反复拉日志文件。
 pub type LineSink = Arc<dyn Fn(&str, u64) + Send + Sync>;
 
+/// Python 进度桥的推送回调；每次都带该实例当前完整的进度条快照。
+pub type ProgressSink = Arc<dyn Fn(&ProgressSnapshot) + Send + Sync>;
+
 /// 全局递增序号：跨进程也不回绕，界面重启实例后不会因为序号归零而丢新日志。
 static LOG_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -540,6 +544,8 @@ pub struct ProcHandle {
     tail: Mutex<VecDeque<String>>,
     health: Mutex<Option<Health>>,
     sink: Option<LineSink>,
+    progress: Mutex<ProgressState>,
+    progress_sink: Option<ProgressSink>,
     pub pid: u32,
     pub port: u16,
 }
@@ -559,6 +565,22 @@ impl ProcHandle {
         if let Some(sink) = &self.sink {
             sink(&line, seq);
         }
+    }
+
+    fn push_progress(&self, message: progress::ProgressMessage) {
+        let snapshot = {
+            let mut state = self.progress.lock();
+            state.apply(message)
+        };
+        if let Some(snapshot) = snapshot {
+            if let Some(sink) = &self.progress_sink {
+                sink(&snapshot);
+            }
+        }
+    }
+
+    pub fn progress_snapshot(&self) -> ProgressSnapshot {
+        self.progress.lock().snapshot()
     }
 
     pub fn tail(&self, n: usize) -> Vec<String> {
@@ -743,15 +765,24 @@ impl NoWindow for Command {
 
 #[cfg(test)]
 pub fn spawn(launch: Launch) -> Result<Arc<ProcHandle>, AppError> {
-    spawn_inner(launch, None)
+    spawn_inner(launch, None, None)
 }
 
-/// 带实时回调的启动：每读到一行就调用 `sink(line, seq)`。
-pub fn spawn_with_sink(launch: Launch, sink: LineSink) -> Result<Arc<ProcHandle>, AppError> {
-    spawn_inner(launch, Some(sink))
+/// 带实时回调的启动：每读到一行就调用 `sink(line, seq)`；
+/// Python 进度桥的消息会走单独的 `progress_sink`，不进入日志。
+pub fn spawn_with_sink(
+    launch: Launch,
+    sink: LineSink,
+    progress_sink: Option<ProgressSink>,
+) -> Result<Arc<ProcHandle>, AppError> {
+    spawn_inner(launch, Some(sink), progress_sink)
 }
 
-fn spawn_inner(launch: Launch, sink: Option<LineSink>) -> Result<Arc<ProcHandle>, AppError> {
+fn spawn_inner(
+    launch: Launch,
+    sink: Option<LineSink>,
+    progress_sink: Option<ProgressSink>,
+) -> Result<Arc<ProcHandle>, AppError> {
     let port = launch.port;
     if let Some(dir) = launch.log_path.parent() {
         std::fs::create_dir_all(dir)
@@ -787,9 +818,16 @@ fn spawn_inner(launch: Launch, sink: Option<LineSink>) -> Result<Arc<ProcHandle>
         tail: Mutex::new(VecDeque::new()),
         health: Mutex::new(None),
         sink,
+        progress: Mutex::new(ProgressState::default()),
+        progress_sink,
         pid,
         port,
     });
+
+    // 先发一次空快照：自动重启复用同一实例时，前端先把上一轮遗留的进度条清掉。
+    if let Some(sink) = &handle.progress_sink {
+        sink(&handle.progress_snapshot());
+    }
 
     if let Some(out) = stdout {
         pump(out, Arc::clone(&handle), Arc::clone(&file));
@@ -810,6 +848,7 @@ fn pump<R: Read + Send + 'static>(
         let mut buf = [0u8; 8192];
         let mut pending: Vec<u8> = Vec::new();
         let mut last_emit = std::time::Instant::now();
+        let mut last_delim_cr = false;
         let throttle = Duration::from_millis(120);
 
         // tqdm / 下载条会 \r 原地刷新，不能只 \n，否则整段进度会挤成一行         //  \r 刷新很密，按 120ms 节流，避 IPC 把界面拖死。
@@ -822,9 +861,17 @@ fn pump<R: Read + Send + 'static>(
                 return true;
             }
             last_emit = now;
+            let raw = String::from_utf8_lossy(segment);
+            // Python 进度桥的行不进日志、不进 tail，只更新结构化进度。
+            if let Some(json) = raw.trim_end_matches('\r').strip_prefix(PROGRESS_PREFIX) {
+                if let Some(message) = progress::parse_message(json.trim()) {
+                    handle.push_progress(message);
+                }
+                return true;
+            }
             // ComfyUI 的日志带 ANSI 颜色码（\x1b[32m[INFO]\x1b[0m），
             // 不剥掉界面里会显示成一 [32m
-            let line = strip_ansi(&String::from_utf8_lossy(segment));
+            let line = strip_ansi(raw.as_ref());
             let line = line.trim_end();
             if line.is_empty() {
                 return true;
@@ -862,6 +909,7 @@ fn pump<R: Read + Send + 'static>(
                     if !flush(&pending[consumed..i], is_progress, false) {
                         return;
                     }
+                    last_delim_cr = is_progress;
                     consumed = i + skip;
                     i = consumed;
                     continue;
@@ -871,9 +919,38 @@ fn pump<R: Read + Send + 'static>(
             if consumed > 0 {
                 pending.drain(..consumed);
             }
+
+            // tqdm 把 \r 写在每条进度前面，而不是后面。按分隔符切分时，
+            // 最新一条会一直留在 pending 里，等下一次 \r 才被当成“上一条”发出去，
+            // 界面就永远比控制台慢一步。这里在每次 read 结束时把已经完整的
+            // 最新进度立即发出；不完整的分片仍等下一批数据拼好再发。
+            if last_delim_cr && is_complete_progress(&pending) {
+                if !flush(&pending, true, true) {
+                    return;
+                }
+                pending.clear();
+                last_delim_cr = false;
+            }
         }
         let _ = flush(&pending, false, true);
     });
+}
+
+/// 判断 pending 里是不是一条已经写完整的 tqdm 进度（以防 stdout 被拆包）。
+fn is_complete_progress(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    let text = strip_ansi(&String::from_utf8_lossy(bytes));
+    let text = text.trim_end();
+    if !text.ends_with(']') {
+        return false;
+    }
+    let Some(percent) = text.find("%|") else {
+        return false;
+    };
+    let rest = &text[percent + 2..];
+    rest.contains('|') && rest.contains('/') && rest.contains('[')
 }
 
 /// 去掉 ANSI 转义序列（CSI 与裸 ESC。
@@ -1384,5 +1461,18 @@ mod tests {
         inst.python = Default::default();
         assert!(resolve_python(&inst).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detects_complete_tqdm_progress() {
+        assert!(is_complete_progress(
+            b"\r 40%|########  | 4/10 [00:01<00:01,  4.00it/s]"
+        ));
+        assert!(is_complete_progress(
+            b"\r 40%|########  | 4/10 [00:01<00:01,  4.00it/s]\x1b[0m"
+        ));
+        // 被 stdout 拆开的不完整进度必须继续等下一批数据。
+        assert!(!is_complete_progress(b"\r 40%|########  | 4/10 [00:01<00:"));
+        assert!(!is_complete_progress(b"[INFO] loaded completely"));
     }
 }

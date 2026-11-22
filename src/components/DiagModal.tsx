@@ -1,4 +1,5 @@
 import Button from './Button'
+import IconTextButton from './IconTextButton'
 import { useCallback, useEffect, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type { DepsReport, DiagReport, InstanceConfig } from '../types'
@@ -96,10 +97,10 @@ export default function DiagModal({ inst, notify, onClose, onInstall }: Props) {
             </span>
           )}
           <div className="spacer" />
-          <Button className="ghost sm" onClick={() => void scan()} disabled={loading}>
-            <Icon name="refresh" size={13} />
+          <IconTextButton className="ghost sm" onClick={() => void scan()} disabled={loading} icon="refresh" iconSize={13}>
+            
             {loading ? '检测中…' : '重新检测'}
-          </Button>
+          </IconTextButton>
           <Button className="icon-btn" onClick={onClose} title="关闭" aria-label="关闭">
             <Icon name="close" size={16} />
           </Button>
@@ -154,10 +155,10 @@ export default function DiagModal({ inst, notify, onClose, onInstall }: Props) {
                   )}
                   <div className="spacer" />
                   {pendingNodes > 0 && (
-                    <Button className="primary sm" onClick={() => onInstall(null)}>
-                      <Icon name="download" size={13} />
+                    <IconTextButton className="primary sm" onClick={() => onInstall(null)} icon="download" iconSize={13}>
+                      
                       全部补依赖
-                    </Button>
+                    </IconTextButton>
                   )}
                 </div>
 

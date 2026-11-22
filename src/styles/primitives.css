@@ -101,6 +101,8 @@
   font-weight: 600;
   letter-spacing: -0.006em;
   white-space: nowrap;
+  /* 中文墨迹中心比行盒中心高约 1px，卡片标题统一下移做视觉居中。 */
+  transform: translateY(1px);
 }
 .panel-head .badge { max-width: none; }
 .panel-body { padding: 14px 16px; display: grid; gap: 12px; align-content: start; }
@@ -113,6 +115,27 @@ button, .btn {
   font-size: 13.5px;
   border-radius: var(--r-sm);
 }
+:where(.icon-text-btn) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 纯文字按钮的标签：统一做中文墨迹的视觉居中。 */
+.btn-label {
+  display: inline-block;
+  transform: translateY(1px);
+}
+.icon-text-btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: inherit;
+  min-width: 0;
+}
+.icon-text-btn > .icon-text-btn-label {
+  line-height: var(--icon-text-size, 14px);
+  transform: translateY(var(--icon-label-optical-y, 0px));
+}
+.icon-text-btn > .icon-text-btn-label :is(span, b, strong) { line-height: inherit; }
 
 button.primary,
 button.ghost,
@@ -153,7 +176,7 @@ button.primary:hover:not(:disabled) {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 button.primary:active:not(:disabled) { background: var(--blue-press); border-color: var(--blue-press); }
-button.primary:disabled { background: var(--sunken-2); border-color: var(--line-2); color: var(--ink-3); box-shadow: none; }
+button.primary:disabled { background: var(--card-sunken); border-color: var(--line-2); color: var(--ink-3); box-shadow: none; }
 
 button.ghost {
   background: var(--surface);
@@ -161,7 +184,7 @@ button.ghost {
   color: var(--ink-2);
 }
 button.ghost:hover:not(:disabled) { background: #f7f7f9; color: var(--ink); }
-button.ghost:disabled { background: var(--sunken); border-color: var(--line-2); color: var(--ink-4); box-shadow: none; }
+button.ghost:disabled { background: var(--card-surface); border-color: var(--line-2); color: var(--ink-4); box-shadow: none; }
 
 button.quiet {
   background: transparent;
@@ -186,7 +209,7 @@ button.danger.solid {
 }
 button.danger.solid:hover:not(:disabled) { background: #ff7382; border-color: #ff7382; color: #fff; }
 button.danger.solid:active:not(:disabled) { background: #e04b5b; border-color: #e04b5b; }
-button.danger.solid:disabled { background: var(--sunken-2); border-color: transparent; color: var(--ink-3); }
+button.danger.solid:disabled { background: var(--card-sunken); border-color: transparent; color: var(--ink-3); }
 
 button.primary.sm, button.ghost.sm, button.danger.sm { height: 26px; padding: 0 9px; font-size: 11.5px; }
 
@@ -271,6 +294,65 @@ input[type='checkbox'] {
   accent-color: var(--blue);
   cursor: pointer;
 }
+
+/* 全局拨动开关：Switch 组件统一使用这套样式 */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.switch.is-disabled { cursor: default; opacity: 0.5; }
+.switch .switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch-track {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--sunken-2);
+  transition:
+    background 0.16s var(--ease),
+    border-color 0.16s var(--ease);
+}
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+  transition: transform 0.16s var(--ease);
+}
+.switch:hover input:not(:checked):not(:disabled) + .switch-track { border-color: var(--blue); }
+.switch input:checked + .switch-track {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+.switch input:checked + .switch-track::after { transform: translateX(14px); }
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.switch input:disabled + .switch-track { cursor: default; }
 
 .field { display: grid; gap: 6px; min-width: 0; }
 .field label { font-size: 11.5px; color: var(--ink-2); }
@@ -571,7 +653,7 @@ label.check {
   margin-top: 8px;
   border: 1px solid var(--line-2);
   border-radius: 6px;
-  background: var(--surface-2);
+  background: var(--card-surface-2);
 }
 .version-dirty-list {
   list-style: none;

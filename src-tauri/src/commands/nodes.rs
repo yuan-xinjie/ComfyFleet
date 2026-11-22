@@ -21,6 +21,8 @@ pub const DISABLED_SUFFIX: &str = ".disabled";
 pub struct NodeInfo {
     /// 目录名（不含 `.disabled`：
     pub name: String,
+    /// 节点目录的绝对路径（禁用节点指向 `.disabled` 目录）
+    pub path: String,
     pub enabled: bool,
     /// git | manual
     pub kind: String,
@@ -104,6 +106,7 @@ pub fn scan_nodes(dir: &Path) -> Result<Vec<NodeInfo>, AppError> {
         let is_git = git_dir.exists();
         out.push(NodeInfo {
             name,
+            path: path.display().to_string(),
             enabled,
             kind: if is_git {
                 "git".into()
@@ -191,6 +194,81 @@ fn git_exe(app: &AppHandle, state: &AppState) -> Result<PathBuf, AppError> {
     Ok(PathBuf::from(crate::git::resolve(app, &settings)?.path))
 }
 
+/// 从 git 的 merge 拒绝输出里取出“本地改动会被覆盖”的文件。
+fn local_change_paths(output: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut in_list = false;
+    for line in output.lines() {
+        if line.contains("would be overwritten by merge") {
+            in_list = true;
+            continue;
+        }
+        if !in_list {
+            continue;
+        }
+        let path = line.trim();
+        if path.is_empty()
+            || path.starts_with("Please ")
+            || path.starts_with("Aborting")
+            || path.starts_with("error:")
+        {
+            break;
+        }
+        paths.push(path.to_string());
+    }
+    paths
+}
+
+fn safe_repo_path(path: &str) -> bool {
+    let path = Path::new(path);
+    !path.as_os_str().is_empty()
+        && !path.is_absolute()
+        && path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+}
+
+/// pull 因本地改动被拒绝时，按 git 列出的文件逐个 checkout 掉修改，
+/// 然后重试一次；不再只特判 config.json。
+fn pull_node_with_local_changes(
+    git: &Path,
+    args: &[&str],
+    node: &Path,
+    env: &std::collections::BTreeMap<String, String>,
+    on_event: &Channel<VersionEvent>,
+) -> Result<proc::CmdOutput, AppError> {
+    let run = |on_event: &Channel<VersionEvent>| {
+        proc::run_stream(git, args, Some(node), env, &mut |line| {
+            let _ = on_event.send(VersionEvent::console(line));
+        })
+    };
+    let first = run(on_event)?;
+    if first.ok() {
+        return Ok(first);
+    }
+    let files = local_change_paths(&format!("{}\n{}", first.stdout, first.stderr));
+    if files.is_empty() {
+        return Ok(first);
+    }
+    for file in &files {
+        if !safe_repo_path(file) {
+            return Err(AppError::new(
+                "NODE_PULL_LOCAL_CHANGES",
+                format!("拒绝处理不安全的文件路径：{file}"),
+            ));
+        }
+        let out = proc::run(git, &["checkout", "HEAD", "--", file], Some(node), env)?;
+        if !out.ok() {
+            return Err(AppError::new(
+                "NODE_PULL_LOCAL_CHANGES",
+                format!("舍弃 {file} 的本地修改失败：{}", out.detail()),
+            ));
+        }
+        let _ = on_event.send(VersionEvent::console(format!("舍弃本地修改：{file}")));
+    }
+    run(on_event)
+}
+
 fn ensure_stopped(state: &AppState, id: &str) -> Result<(), AppError> {
     if state.runs.lock().contains_key(id) {
         return Err(AppError::new(
@@ -240,7 +318,14 @@ pub async fn nodes_install(
 ) -> Result<NodeInfo, AppError> {
     let _op = crate::state::OpGuard::acquire(&instance_id, "安装节点")?;
     let inst = load_instance(&instance_id)?;
-    ensure_stopped(state.inner(), &instance_id)?;
+    let with_req = install_requirements.unwrap_or(true);
+    // 实例运行中只允许 git clone；装依赖会改正在使用的 venv，必须等停止后。
+    if with_req && state.runs.lock().contains_key(&instance_id) {
+        return Err(AppError::new(
+            "NODE_DEPS_RUNNING",
+            "实例运行中不能装依赖：取消勾选「装依赖」后再安装节点，或先停止实例",
+        ));
+    }
     let dir = nodes_dir(&inst.root_dir);
     std::fs::create_dir_all(&dir)?;
 
@@ -263,7 +348,6 @@ pub async fn nodes_install(
     let git = git_exe(&app, state.inner())?;
     let settings = state.settings.lock().clone();
     let url = url.trim().to_string();
-    let with_req = install_requirements.unwrap_or(true);
     // 日志里要留来源与名字：闭包会拿走所有权，先各留一件
     let log_name = node_name.clone();
     let log_url = crate::sync::redact_url(&url);
@@ -455,6 +539,7 @@ pub async fn nodes_update(
 ) -> Result<NodeUpdate, AppError> {
     let _op = crate::state::OpGuard::acquire(&instance_id, "更新节点")?;
     let inst = load_instance(&instance_id)?;
+    ensure_stopped(state.inner(), &instance_id)?;
     let dir = nodes_dir(&inst.root_dir);
     validate_name(&name)?;
     let node = target_dir(&dir, &name, true);
@@ -471,7 +556,6 @@ pub async fn nodes_update(
         ));
     }
     let git = git_exe(&app, state.inner())?;
-    let running = state.runs.lock().contains_key(&instance_id);
     let log_name = name.clone();
 
     // git pull 也可能慢（远端慢、仓库大），同样扔到阻塞线程
@@ -498,9 +582,7 @@ pub async fn nodes_update(
         } else {
             vec!["pull", "--progress", "--ff-only"]
         };
-        let out = proc::run_stream(&git, &args, Some(&node), &env, &mut |line| {
-            let _ = on_event.send(VersionEvent::console(line));
-        })?;
+        let out = pull_node_with_local_changes(&git, &args, &node, &env, &on_event)?;
         if !out.ok() {
             let _ = on_event.send(VersionEvent::failed(
                 "pull",
@@ -512,9 +594,6 @@ pub async fn nodes_update(
             ));
         }
         let _ = on_event.send(VersionEvent::done("pull", "更新完成（重启 ComfyUI 生效）"));
-        if running {
-            log::warn!("实例正在运行，节点更新要重启后才生效");
-        }
         // pull 已经 fetch 过远端，这里直接读本地 refs 就能得到最新状态，
         // 不再多发一次网络请求；前端拿到就能立刻把「可更新」改成「已最新」。
         let fresh = check_one_update(&git, &name, &node, false);
@@ -586,12 +665,37 @@ pub async fn nodes_check_updates(
         return Ok(Vec::new());
     }
 
-    // 每个节点一次fetch：0 秒超时），串行跑在阻塞线程里
+    // 每个节点一次 fetch，单次超时 30 秒。节点仓库互不依赖，按 8 路并发，
+    // 否则一棵慢仓库就会把整轮检查拖到几分钟。
     tauri::async_runtime::spawn_blocking(move || {
-        targets
-            .into_iter()
-            .map(|(name, path)| check_one_update(&git, &name, &path, true))
-            .collect::<Vec<_>>()
+        const CONCURRENCY: usize = 8;
+        let git = &git;
+        let mut out = Vec::with_capacity(targets.len());
+        for chunk in targets.chunks(CONCURRENCY) {
+            let batch: Vec<NodeUpdate> = std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|(name, path)| {
+                        scope.spawn(move || check_one_update(git, name, path, true))
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .zip(chunk.iter())
+                    .map(|(handle, (name, _))| {
+                        handle.join().unwrap_or_else(|_| NodeUpdate {
+                            name: name.clone(),
+                            behind: 0,
+                            local: None,
+                            remote: None,
+                            error: Some("检查更新线程异常".to_string()),
+                        })
+                    })
+                    .collect()
+            });
+            out.extend(batch);
+        }
+        out
     })
     .await
     .map_err(|e| AppError::new("NODE_CHECK_JOIN", format!("检查更新线程异常：{e}")))
@@ -783,6 +887,33 @@ fn nodes_remove_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_local_change_paths_from_pull_error() {
+        let output = "error: Your local changes to the following files would be overwritten by merge:\n\tconfig.json\n\tsub dir/settings.json\nPlease commit your changes or stash them before you merge.\nAborting\n";
+        assert_eq!(
+            local_change_paths(output),
+            vec![
+                "config.json".to_string(),
+                "sub dir/settings.json".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_pull_errors_without_local_changes() {
+        assert!(local_change_paths("fatal: unable to access remote\n").is_empty());
+    }
+
+    #[test]
+    fn rejects_unsafe_git_paths() {
+        assert!(safe_repo_path("config.json"));
+        assert!(safe_repo_path("sub/settings.json"));
+        assert!(!safe_repo_path("../outside.json"));
+        assert!(!safe_repo_path("sub/../outside.json"));
+        assert!(!safe_repo_path("/absolute.json"));
+        assert!(!safe_repo_path(""));
+    }
 
     #[test]
     fn derives_name_from_url() {

@@ -1,5 +1,6 @@
 import { Checkbox } from '../components/Form'
 import Button from '../components/Button'
+import IconTextButton from '../components/IconTextButton'
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type {
@@ -495,7 +496,7 @@ function SyncDetails({
   return (
     <>
       <div className="sync-log">
-        <Button
+        <IconTextButton
           type="button"
           className="sync-log-toggle"
           onClick={() => {
@@ -503,11 +504,11 @@ function SyncDetails({
             setOpen(true)
           }}
           title="打开同步任务详情"
-        >
-          <Icon name="console" size={13} />
+         icon="console" iconSize={13}>
+          
           <span>详情</span>
           <span className="sync-log-count">{events.length}</span>
-        </Button>
+        </IconTextButton>
       </div>
       {open && (
         <OperationDialog
@@ -547,16 +548,16 @@ function SyncDetails({
           onClose={() => setOpen(false)}
           footer={
             active && onCancel ? (
-              <Button
+              <IconTextButton
                 className="ghost stop"
                 type="button"
                 onClick={() => onCancel(job)}
                 disabled={cancelling}
                 title="取消当前同步"
-              >
-                <Icon name="stop" size={13} />
+               icon="stop" iconSize={13}>
+                
                 {cancelling ? '取消中…' : '取消同步'}
-              </Button>
+              </IconTextButton>
             ) : null
           }
         >
@@ -850,16 +851,16 @@ export function PreparePanel({
       onClose={onClose}
       footer={
         !prep.done ? (
-          <Button
+          <IconTextButton
             className="ghost stop"
             type="button"
             onClick={onCancel}
             disabled={prep.cancelling}
             title="停止准备"
-          >
-            <Icon name="stop" size={13} />
+           icon="stop" iconSize={13}>
+            
             {prep.cancelling ? '停止中…' : '停止准备'}
-          </Button>
+          </IconTextButton>
         ) : null
       }
     >
@@ -1210,14 +1211,14 @@ export function ComparePanel({
             placeholder="选择本机实例"
           />
         </label>
-        <Button
+        <IconTextButton
           className="primary"
           disabled={!sourceId || !targetId || busy === 'compare'}
           onClick={onCompare}
-        >
-          <Icon name="refresh" size={14} />
+         icon="refresh" iconSize={14}>
+          
           {busy === 'compare' ? '比较中…' : '比较'}
-        </Button>
+        </IconTextButton>
       </div>
       {comparison ? (
         <div className="sync-compare-result">
@@ -1376,14 +1377,14 @@ export function PendingList({
                 </div>
               )}
               <div className="sync-confirm-actions">
-                <Button
+                <IconTextButton
                   className="primary"
                   disabled={!!busy || !targetId || blocked}
                   onClick={() => onConfirm(job)}
-                >
-                  <Icon name="check" size={14} />
+                 icon="check" iconSize={14}>
+                  
                   {busy === `confirm-${job.id}` ? '接受中…' : '接受并开始'}
-                </Button>
+                </IconTextButton>
                 <Button
                   className={confirmAction === `reject:${job.id}` ? 'danger' : 'ghost'}
                   disabled={!!busy}
