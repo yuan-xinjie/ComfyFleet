@@ -76,17 +76,6 @@ textarea,
   input:not([type]),
   select,
   textarea
-):not(:disabled):not(:focus):hover {
-  border-color: color-mix(in srgb, var(--blue) 30%, var(--line-strong));
-}
-
-:is(
-  input[type='text'],
-  input[type='number'],
-  input[type='password'],
-  input:not([type]),
-  select,
-  textarea
 ):focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px var(--blue-ring), inset 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -114,13 +103,9 @@ textarea,
 .select-trigger:focus-visible:not(:disabled),
 .select-trigger[aria-expanded='true']:not(:disabled) {
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px var(--blue-ring), inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 0 0 1px var(--blue);
   outline: none;
   transition-duration: var(--motion-focus);
-}
-
-.select-trigger:hover:not(:disabled):not([aria-expanded='true']) {
-  background-color: color-mix(in srgb, var(--surface-2) 44%, #050509);
 }
 
 /* 按钮：悬停只换面色；按下只换底色，不做缩放，也不位移。

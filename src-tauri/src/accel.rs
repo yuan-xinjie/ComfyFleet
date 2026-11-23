@@ -370,6 +370,13 @@ pub fn install_wheel(
             "这个实例还没认出 Python 环境（设置 → Python 环境里指一下）。",
         )
     })?;
+    // 旧记录可能缺 PEP 610 的 url，uv 读到会直接失败；装之前先修复一遍。
+    let repaired = runtime::repair_direct_urls(&py);
+    if repaired > 0 {
+        let _ = on.send(VersionEvent::console(format!(
+            "已修复 {repaired} 条不规范的 direct_url.json（旧版本写坏的记录）"
+        )));
+    }
     let uv = crate::commands::env::resolve_uv()?;
     let uv_cache = config::shared_dir().join("uv-cache");
     std::fs::create_dir_all(&uv_cache)?;
@@ -559,7 +566,8 @@ pub fn install_wheel(
 /// 找到刚装好的 dist-info，把原始下载 URL 记进 PEP 610 的 `direct_url.json`。
 ///
 /// 规范化后的轮子只是临时文件；安装记录保留原始 URL，后续同步重新下载。
-/// 未知字段按 PEP 610 会被忽略，不影响 pip / uv 识别包。
+/// 注意：PEP 610 的 `url` 是必填字段——旧实现只写了自定义的 `comfyfleet_origin`，
+/// uv 0.8 读取环境元数据时会报 `DirectUrl` 反序列化错误；这里补成合法结构。
 fn record_wheel_origin(py: &runtime::PyEnv, pypi: &str, origin: &str) -> Option<()> {
     let mut site_dirs = vec![py.root.join("Lib").join("site-packages")];
     if let Ok(entries) = std::fs::read_dir(py.root.join("lib")) {
@@ -588,6 +596,7 @@ fn record_wheel_origin(py: &runtime::PyEnv, pypi: &str, origin: &str) -> Option<
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
                 .filter(serde_json::Value::is_object)
                 .unwrap_or_else(|| serde_json::json!({}));
+            runtime::ensure_pep610(&mut value, origin);
             value["comfyfleet_origin"] = serde_json::json!({ "url": origin });
             let bytes = serde_json::to_vec(&value).ok()?;
             if crate::config::atomic_write(&path, &bytes).is_ok() {

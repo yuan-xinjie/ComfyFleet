@@ -48,6 +48,7 @@ import type {
   LiveEnv,
   ModelCopyResult,
   ModelListing,
+  ModelSearchHit,
   ModelOpResult,
   NodeInfo,
   NodeUpdate,
@@ -164,6 +165,9 @@ export const api = {
   /** 模型资源管理器：列当前实例某个生效模型目录（root + 相对路径） */
   modelsList: (instanceId: string, root: string, rel: string) =>
     invoke<ModelListing>('models_list', { instanceId, root, rel }),
+  /** 在当前模型根目录下递归按名字搜索；结果带所在目录 */
+  modelsSearch: (instanceId: string, root: string, query: string) =>
+    invoke<ModelSearchHit[]>('models_search', { instanceId, root, query }),
   /** 把拖进来的文件/目录复制到当前模型目录；已存在的同名文件跳过 */
   modelsCopy: (instanceId: string, root: string, rel: string, sources: string[]) =>
     invoke<ModelCopyResult>('models_copy', { instanceId, root, rel, sources }),

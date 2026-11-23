@@ -345,19 +345,8 @@ fn launch_instance_locked(
         Some(chrono::Local::now().to_rfc3339()),
     );
 
-    // 启动快照：状态没变就不重复记；后台拍，不拖慢启动。
-    {
-        let snap_inst = inst.clone();
-        let snap_settings = settings.clone();
-        std::thread::spawn(move || {
-            if crate::snapshot::capture_boot(&snap_inst, &snap_settings).is_none() {
-                log::debug!(
-                    "instance {} state unchanged; skip boot snapshot",
-                    snap_inst.id
-                );
-            }
-        });
-    }
+    // 启动不再自动拍快照：启动/重启很频繁，时间线会被无意义的重复记录淹没。
+    // 需要回滚点时用「记录当前状态」，或在更新/装依赖/恢复/同步这些关键操作前后自动记录。
 
     let url = format!("http://{}:{port}", runtime::probe_host(&inst.server.listen));
     crate::activity::record(

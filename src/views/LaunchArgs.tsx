@@ -671,7 +671,6 @@ export default function LaunchArgs({ inst, notify, onSaved, onSaveState }: Props
       <div className="panel">
         <header className="panel-head">
           <h2>启动参数</h2>
-          <span className="badge ghost">{inst.name}</span>
           {dirty && <span className="badge warn">未保存</span>}
           <div className="spacer" />
           <IconTextButton className="ghost sm" onClick={() => void api.openUrl(DOCS_URL)} icon="globe" iconSize={13}>

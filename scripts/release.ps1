@@ -52,7 +52,8 @@ function Write-TextNoBom([string]$path, [string]$text) {
 }
 
 function Read-Text([string]$path) {
-  return [System.IO.File]::ReadAllText($path)
+  # 显式按 UTF-8 读：Windows PowerShell 的 ReadAllText 默认走 ANSI，中文 notes 会变乱码。
+  return [System.IO.File]::ReadAllText($path, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 # ---------------------------------------------------------------- 1. 版本号

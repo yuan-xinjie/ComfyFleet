@@ -63,6 +63,9 @@ const TRIGGER_LABEL: Record<string, string> = {
   'post-update': '更新后',
   'pre-restore': '恢复前',
   'post-restore': '恢复后',
+  'pre-sync': '同步前',
+  'post-sync': '同步后',
+  sync: '同步',
 }
 
 /** 一次真实的状态切换（Desktop 用橙色点强调这两种） */
@@ -802,7 +805,14 @@ export default function SnapshotsView({ inst, running, notify, onChanged, onBusy
                         if (e.key === 'Enter' && !creating) void create()
                       }}
                     />
-                    <IconTextButton className="snap-cta" onClick={() => void create()} disabled={creating} icon="plus" iconSize={13}>
+                    <IconTextButton
+                      variant="ghost"
+                      className="snap-cta"
+                      onClick={() => void create()}
+                      disabled={creating}
+                      icon="plus"
+                      iconSize={13}
+                    >
                       
                       {creating ? '记录中…' : '记录当前状态'}
                     </IconTextButton>

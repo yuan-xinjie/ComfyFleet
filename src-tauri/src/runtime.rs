@@ -145,6 +145,83 @@ pub fn resolve_python(inst: &InstanceConfig) -> Option<PyEnv> {
     })
 }
 
+/// 把 `direct_url.json` 补成 uv 能解析的 PEP 610 形状。
+///
+/// 旧版启动器给加速库轮子写记录时只塞了自定义的 `comfyfleet_origin`，没有 `url`；
+/// uv 0.8 在读取环境元数据时会报 `data did not match any variant of untagged enum DirectUrl`，
+/// 导致随后任何 uv 安装都失败。这里补上 `url`（用原始下载地址）和一个空的 `archive_info`。
+/// 返回是否改动了内容。
+pub fn ensure_pep610(value: &mut serde_json::Value, origin: &str) -> bool {
+    if value
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty())
+    {
+        return false;
+    }
+    value["url"] = serde_json::json!(origin);
+    let has_info = ["archive_info", "vcs_info", "dir_info"]
+        .iter()
+        .any(|k| value.get(*k).is_some());
+    if !has_info {
+        value["archive_info"] = serde_json::json!({});
+    }
+    true
+}
+
+/// 扫描 venv / 解释器里的 dist-info，修复历史版本写坏的非标准 `direct_url.json`。
+/// 返回修复条数；读不了的文件直接跳过。
+pub fn repair_direct_urls(py: &PyEnv) -> usize {
+    let mut sites = vec![py.root.join("Lib").join("site-packages")];
+    if let Ok(entries) = std::fs::read_dir(py.root.join("lib")) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with("python") {
+                sites.push(entry.path().join("site-packages"));
+            }
+        }
+    }
+    let mut fixed = 0;
+    for site in sites {
+        let Ok(entries) = std::fs::read_dir(&site) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if !name.to_string_lossy().ends_with(".dist-info") {
+                continue;
+            }
+            let path = entry.path().join("direct_url.json");
+            let Ok(raw) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            if !value.is_object() {
+                continue;
+            }
+            let Some(origin) = value
+                .get("comfyfleet_origin")
+                .and_then(|o| o.get("url"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            if !ensure_pep610(&mut value, &origin) {
+                continue;
+            }
+            if let Ok(bytes) = serde_json::to_vec(&value) {
+                if crate::config::atomic_write(&path, &bytes).is_ok() {
+                    fixed += 1;
+                }
+            }
+        }
+    }
+    fixed
+}
+
 /// 组装实例进程的环境变量。
 ///
 /// 优先级：实例 env > 实例镜像覆盖 > 全局镜像 > 默认。
@@ -1460,6 +1537,41 @@ mod tests {
         // managed mode with no .venv must return None.
         inst.python = Default::default();
         assert!(resolve_python(&inst).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn repairs_legacy_direct_url_without_url() {
+        let dir = std::env::temp_dir().join(format!("comfyfleet-direct-url-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dist = dir
+            .join("Lib")
+            .join("site-packages")
+            .join("demo-1.0.dist-info");
+        std::fs::create_dir_all(&dist).unwrap();
+        let file = dist.join("direct_url.json");
+        std::fs::write(
+            &file,
+            r#"{"comfyfleet_origin":{"url":"https://example.com/demo-1.0.whl"}}"#,
+        )
+        .unwrap();
+        let py = PyEnv {
+            root: dir.clone(),
+            python: dir.join("python.exe"),
+            managed: true,
+            venv_style: true,
+        };
+        assert_eq!(repair_direct_urls(&py), 1);
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(value["url"], "https://example.com/demo-1.0.whl");
+        assert!(value["archive_info"].is_object());
+        assert_eq!(
+            value["comfyfleet_origin"]["url"],
+            "https://example.com/demo-1.0.whl"
+        );
+        // 已经修好的文件不重复写。
+        assert_eq!(repair_direct_urls(&py), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -18,13 +18,6 @@
   border-color: var(--hover-bg);
   color: var(--blue);
 }
-:root.theme-light .win-btn:not(.close):hover:not(:disabled) {
-  background: transparent;
-  color: var(--blue-ink);
-}
-:root.theme-light .win-btn:active:not(:disabled) {
-  background: var(--hover-3);
-}
 :root.theme-light .share-row:hover,
 :root.theme-light .node-row:hover,
 :root.theme-light .tag-row:hover {
@@ -140,25 +133,6 @@
   background: var(--sunken);
   color: var(--theme-ink-3);
 }
-:root.theme-light :is(
-  input:not([type]),
-  input[type='text'],
-  input[type='search'],
-  input[type='url'],
-  input[type='email'],
-  input[type='number'],
-  input[type='password'],
-  input[type='date'],
-  input[type='time'],
-  input[type='datetime-local'],
-  input[type='month'],
-  input[type='week'],
-  select,
-  textarea
-):not(:disabled):not(:focus):hover {
-  background: var(--hover-fill);
-  border-color: var(--blue);
-}
 /* 聚焦用内描边把 1px 边框视觉上加到 2px；不改变外框尺寸，下方内容不位移。 */
 :root.theme-light :is(
   input:not([type]),
@@ -187,11 +161,6 @@
   color: var(--card-ink);
   box-shadow: inset 0 0 0 0 var(--blue);
 }
-:root.theme-light .select-trigger:hover:not(:disabled):not([aria-expanded='true']) {
-  background: var(--hover-fill);
-  border-color: var(--line-strong);
-  color: var(--card-ink);
-}
 /* 聚焦 / 展开：不再套外圈，也不改外框尺寸；边框 + 内描边视觉上是 2px。 */
 :root.theme-light .select-trigger[aria-expanded='true'],
 :root.theme-light .select-trigger:focus-visible {
@@ -204,6 +173,16 @@
   background: var(--sunken);
   color: var(--theme-ink-4);
 }
+/* 输入框 / 下拉框悬浮：底色不动，边框仍是 1px，只把边框颜色换成主题色；宽度不变，内部文字不位移。 */
+:root :is(
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']):not([type='button']):not([type='submit']):not([type='reset']),
+  textarea,
+  select,
+  .select-trigger
+):hover:not(:disabled):not([aria-expanded='true']) {
+  border-color: var(--blue);
+}
+
 /* 分段选择：按截图单独处理成无边框的软底控件；轨道、选中、悬浮都不画边。 */
 :root.theme-light .seg {
   background: var(--hover-1);

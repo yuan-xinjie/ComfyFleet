@@ -27,7 +27,7 @@ pub const DATA_DIR_ENV: &str = "COMFYFLEET_DATA_DIR";
 /// v8 共享模型目录可以全部删光，不再自动补回默认目录；
 /// v9 界面字体拆成英文 / 中文 / 等宽三项独立选择；
 /// v10 字体改为本机字体族名称，不再使用内置字体 id
-const SETTINGS_VERSION: u32 = 10;
+const SETTINGS_VERSION: u32 = 12;
 
 /// 旧版默认 PyPI 镜像。升级到 v4 时如果配置里还是这个值，视为没改过，直接清空
 const LEGACY_DEFAULT_PYPI: &str = "https://mirrors.aliyun.com/pypi/simple/";
@@ -480,6 +480,14 @@ pub const MAX_CARD_TRANSPARENCY: u8 = 80;
 pub const DEFAULT_BAR_TRANSPARENCY: u8 = 64;
 pub const MAX_BAR_TRANSPARENCY: u8 = 80;
 pub const DEFAULT_BAR_FOLLOW_CARD: bool = false;
+/// 整体界面样式：borderless = 无边框/无分割线，outlined = 原有的发丝线。
+pub const DEFAULT_UI_STYLE: &str = "borderless";
+pub const DEFAULT_CARD_SHADOW: bool = true;
+pub const DEFAULT_CARD_SHADOW_SIZE: u8 = 18;
+pub const MIN_CARD_SHADOW_SIZE: u8 = 0;
+pub const MAX_CARD_SHADOW_SIZE: u8 = 48;
+pub const DEFAULT_BACKGROUND_MODE: &str = "gradient";
+pub const DEFAULT_BACKGROUND_COLOR: &str = "#111525";
 pub const DEFAULT_FONT_LATIN: &str = "Segoe UI";
 pub const DEFAULT_FONT_CJK: &str = "Microsoft YaHei UI";
 pub const DEFAULT_FONT_MONO: &str = "Cascadia Mono";
@@ -558,6 +566,14 @@ pub struct UiOpts {
     pub bar_transparency: u8,
     /// 底栏透明度是否直接跟随卡片透明度。
     pub bar_follow_card: bool,
+    /// 整体界面样式：borderless = 无边框/无分割线，outlined = 原有发丝线。
+    pub ui_style: String,
+    /// 卡片阴影开关与大小（0–48px）；0 或关闭时统一不显示阴影。
+    pub card_shadow: bool,
+    pub card_shadow_size: u8,
+    /// 自定义软件背景：gradient / color。
+    pub background_mode: String,
+    pub background_color: String,
     /// 英文字体族名称（来自本机字体库）。
     pub font_latin: String,
     /// 中文字体族名称（来自本机字体库）。
@@ -614,6 +630,11 @@ impl Default for UiOpts {
             card_transparency: DEFAULT_CARD_TRANSPARENCY,
             bar_transparency: DEFAULT_BAR_TRANSPARENCY,
             bar_follow_card: DEFAULT_BAR_FOLLOW_CARD,
+            ui_style: DEFAULT_UI_STYLE.to_string(),
+            card_shadow: DEFAULT_CARD_SHADOW,
+            card_shadow_size: DEFAULT_CARD_SHADOW_SIZE,
+            background_mode: DEFAULT_BACKGROUND_MODE.to_string(),
+            background_color: DEFAULT_BACKGROUND_COLOR.to_string(),
             font_latin: DEFAULT_FONT_LATIN.to_string(),
             font_cjk: DEFAULT_FONT_CJK.to_string(),
             font_mono: DEFAULT_FONT_MONO.to_string(),
@@ -839,6 +860,17 @@ impl GlobalSettings {
                 ("consolas", "Consolas"),
             ],
         );
+        if !matches!(self.ui.ui_style.as_str(), "borderless" | "outlined") {
+            self.ui.ui_style = DEFAULT_UI_STYLE.to_string();
+        }
+        self.ui.card_shadow_size = self
+            .ui
+            .card_shadow_size
+            .clamp(MIN_CARD_SHADOW_SIZE, MAX_CARD_SHADOW_SIZE);
+        if !matches!(self.ui.background_mode.as_str(), "gradient" | "color") {
+            self.ui.background_mode = DEFAULT_BACKGROUND_MODE.to_string();
+        }
+        clean_color(&mut self.ui.background_color, DEFAULT_BACKGROUND_COLOR);
         if self.ui.task_bar_idle != "always" {
             self.ui.task_bar_idle = DEFAULT_TASK_BAR_IDLE.to_string();
         }
@@ -1259,6 +1291,11 @@ mod tests {
         assert_eq!(s.ui.card_transparency, DEFAULT_CARD_TRANSPARENCY);
         assert_eq!(s.ui.bar_transparency, DEFAULT_BAR_TRANSPARENCY);
         assert!(!s.ui.bar_follow_card);
+        assert_eq!(s.ui.ui_style, DEFAULT_UI_STYLE);
+        assert_eq!(s.ui.card_shadow, DEFAULT_CARD_SHADOW);
+        assert_eq!(s.ui.card_shadow_size, DEFAULT_CARD_SHADOW_SIZE);
+        assert_eq!(s.ui.background_mode, DEFAULT_BACKGROUND_MODE);
+        assert_eq!(s.ui.background_color, DEFAULT_BACKGROUND_COLOR);
         assert_eq!(s.ui.font_latin, DEFAULT_FONT_LATIN);
         assert_eq!(s.ui.font_cjk, DEFAULT_FONT_CJK);
         assert_eq!(s.ui.font_mono, DEFAULT_FONT_MONO);
@@ -1505,6 +1542,82 @@ mod tests {
         assert_eq!(s.ui.font_latin, DEFAULT_FONT_LATIN);
         assert_eq!(s.ui.font_cjk, DEFAULT_FONT_CJK);
         assert_eq!(s.ui.font_mono, DEFAULT_FONT_MONO);
+    }
+
+    #[test]
+    fn ui_style_keeps_known_values_and_falls_back() {
+        let mut s = GlobalSettings::default();
+        s.ui.ui_style = "outlined".to_string();
+        s.normalize();
+        assert_eq!(s.ui.ui_style, "outlined");
+
+        s.ui.ui_style = "borderless".to_string();
+        s.normalize();
+        assert_eq!(s.ui.ui_style, "borderless");
+
+        s.ui.ui_style = "junk".to_string();
+        s.normalize();
+        assert_eq!(s.ui.ui_style, DEFAULT_UI_STYLE);
+    }
+
+    #[test]
+    fn appearance_effects_and_background_are_clamped_and_cleaned() {
+        let mut s = GlobalSettings::default();
+        s.ui.card_shadow = false;
+        s.ui.card_shadow_size = 200;
+        s.ui.background_mode = "color".to_string();
+        s.ui.background_color = "#ABCDEF".to_string();
+        s.normalize();
+        assert!(!s.ui.card_shadow);
+        assert_eq!(s.ui.card_shadow_size, MAX_CARD_SHADOW_SIZE);
+        assert_eq!(s.ui.background_mode, "color");
+        assert_eq!(s.ui.background_color, "#abcdef");
+
+        s.ui.background_mode = "junk".to_string();
+        s.normalize();
+        assert_eq!(s.ui.background_mode, DEFAULT_BACKGROUND_MODE);
+    }
+
+    /// 已移除的「背景图片」模式在旧配置里是 "image"，必须回退为 gradient
+    #[test]
+    fn legacy_image_background_mode_falls_back_to_gradient() {
+        let mut s = GlobalSettings::default();
+        s.ui.background_mode = "image".to_string();
+        s.normalize();
+        assert_eq!(s.ui.background_mode, DEFAULT_BACKGROUND_MODE);
+    }
+
+    /// 旧 config.json 里已移除的外观字段（含 ~6.8MB 背景图 data URL）必须被忽略，
+    /// 且再次保存时不再出现。
+    #[test]
+    fn removed_appearance_fields_are_ignored_and_not_reserialized() {
+        let raw = r##"{
+            "version": 8,
+            "ui": {
+                "theme": "dark",
+                "cardGlass": true,
+                "cardBlur": 30,
+                "cardShadow": true,
+                "backgroundMode": "image",
+                "backgroundColor": "#112233",
+                "backgroundImage": "data:image/png;base64,QUFBQQ==",
+                "backgroundImageOpacity": 80,
+                "backgroundImageBlur": 12
+            }
+        }"##;
+        let mut s: GlobalSettings = serde_json::from_str(raw).expect("legacy ui must parse");
+        assert_eq!(s.ui.background_mode, "image");
+        s.normalize();
+        assert_eq!(s.ui.background_mode, DEFAULT_BACKGROUND_MODE);
+        assert_eq!(s.ui.background_color, "#112233");
+
+        let saved = serde_json::to_string(&s).expect("settings must serialize");
+        assert!(!saved.contains("cardGlass"));
+        assert!(!saved.contains("cardBlur"));
+        assert!(!saved.contains("backgroundImage"));
+        assert!(!saved.contains("backgroundImageOpacity"));
+        assert!(!saved.contains("backgroundImageBlur"));
+        assert!(!saved.contains("data:image/"));
     }
 
     #[test]

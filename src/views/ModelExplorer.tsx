@@ -1,6 +1,7 @@
 import Button from '../components/Button'
 import IconTextButton from '../components/IconTextButton'
 import Checkbox from '../components/Checkbox'
+import { TextInput } from '../components/Form'
 import {
   Fragment,
   useCallback,
@@ -20,6 +21,7 @@ import type {
   ModelEntry,
   ModelListing,
   ModelOpResult,
+  ModelSearchHit,
   StorageDir,
   StoragePlan,
 } from '../types'
@@ -188,9 +190,20 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [listingKey, setListingKey] = useState<string | null>(null)
   const [dirMotion, setDirMotion] = useState<DirMotion>('none')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [searchHits, setSearchHits] = useState<ModelSearchHit[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [reveal, setReveal] = useState<{ rel: string; name: string } | null>(null)
   const cardRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const searchBoxRef = useRef<HTMLDivElement>(null)
+  const searchButtonRef = useRef<HTMLButtonElement>(null)
+  const searchResultsRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchRequestRef = useRef(0)
   const requestRef = useRef(0)
   const scrollRef = useRef(new Map<string, number>())
   const restoredKeyRef = useRef<string | null>(null)
@@ -274,6 +287,70 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     listRef.current.scrollTop = scrollRef.current.get(scrollKey) ?? 0
   }, [listing, listingKey, scrollKey])
 
+  // 搜索框从顶栏展开后先聚焦，行为与节点卡搜索一致。
+  useEffect(() => {
+    if (!searchOpen) return
+    const frame = requestAnimationFrame(() => searchInputRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [searchOpen])
+
+  // 输入停顿一下再递归搜，避免每敲一个字都扫一遍模型目录。
+  useEffect(() => {
+    if (!searchOpen || !root) {
+      setSearching(false)
+      setSearchHits([])
+      setSearchError(null)
+      return
+    }
+    const needle = search.trim()
+    if (!needle) {
+      searchRequestRef.current += 1
+      setSearching(false)
+      setSearchHits([])
+      setSearchError(null)
+      return
+    }
+    const token = ++searchRequestRef.current
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      setSearchError(null)
+      api
+        .modelsSearch(inst.id, root, needle)
+        .then((hits) => {
+          if (token === searchRequestRef.current) setSearchHits(hits)
+        })
+        .catch((e) => {
+          if (token === searchRequestRef.current) {
+            setSearchHits([])
+            setSearchError(errText(e))
+          }
+        })
+        .finally(() => {
+          if (token === searchRequestRef.current) setSearching(false)
+        })
+    }, 180)
+    return () => window.clearTimeout(timer)
+  }, [searchOpen, search, root, inst.id])
+
+  // 有内容时点卡片外面不收起；空框才自动收。
+  useEffect(() => {
+    if (!searchOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (
+        searchBoxRef.current?.contains(target) ||
+        searchButtonRef.current?.contains(target) ||
+        searchResultsRef.current?.contains(target)
+      ) {
+        return
+      }
+      if (search.trim()) return
+      setSearchOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [searchOpen, search])
+
   // 右键菜单：点空白处、Esc、窗口失焦或尺寸变化都收起。
   useEffect(() => {
     if (!contextMenu) return
@@ -318,6 +395,23 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
     setConfirmDelete(null)
   }, [root, segments])
 
+  // 搜索结果点到哪个文件，就跳到它所在目录并选中，接着能直接复制/重命名/删除。
+  // 放在清空选择之后，避免刚跳过去又被目录切换副作用清掉。
+  useEffect(() => {
+    if (!reveal || !listing) return
+    if ((listing.rel ?? '') !== reveal.rel) return
+    const row = [...(listRef.current?.querySelectorAll<HTMLElement>('.model-row') ?? [])].find(
+      (el) => el.dataset.modelName === reveal.name,
+    )
+    if (!row) {
+      setReveal(null)
+      return
+    }
+    setSelected(new Set([reveal.name]))
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    setReveal(null)
+  }, [listing, reveal])
+
   // 外部改动导致某个选中项消失时，把它从选择里剔掉。
   useEffect(() => {
     if (!listing) return
@@ -345,6 +439,34 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
       next.length > segments.length ? 'forward' : next.length < segments.length ? 'back' : 'none',
     )
     setSegments(next)
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setSearch('')
+    setSearchHits([])
+    setSearchError(null)
+    searchButtonRef.current?.focus()
+  }
+
+  const toggleSearch = () => {
+    if (searchOpen) closeSearch()
+    else setSearchOpen(true)
+  }
+
+  const revealSearchHit = (hit: ModelSearchHit) => {
+    const next = hit.rel ? hit.rel.split('/').filter(Boolean) : []
+    saveScroll()
+    setSearchOpen(false)
+    setSearch('')
+    setSearchHits([])
+    setSearchError(null)
+    setReveal({ rel: hit.rel, name: hit.name })
+    setDirMotion(
+      next.length > segments.length ? 'forward' : next.length < segments.length ? 'back' : 'none',
+    )
+    setSegments(next)
+    searchButtonRef.current?.focus({ preventScroll: true })
   }
 
   const reportResult = (result: ModelOpResult, label: string) => {
@@ -724,6 +846,7 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
   const menuEntry = contextMenu?.entry ?? null
   const menuTargets = contextMenu?.targets ?? []
   const menuCount = menuTargets.length
+  const searchMode = searchOpen && search.trim().length > 0
 
   const openMenuEntry = () => {
     if (!menuEntry?.isDir) return
@@ -774,55 +897,98 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
       ref={cardRef}
       onKeyDown={onKeyDown}
     >
-      <div className="panel-head ov-models-head">
+      <div className={`panel-head ov-models-head${searchOpen ? ' is-searching' : ''}`}>
         <h2 id="ov-models-title">模型</h2>
-        {roots.length > 1 ? (
-          <Select
-            value={root ?? ''}
-            options={rootOptions}
-            onChange={(value) => {
-              saveScroll()
-              setRoot(value)
-              setSegments([])
-              setCopyError(null)
-              setDirMotion('none')
-            }}
-            ariaLabel="选择模型目录"
-            disabled={busy || loadingPlan}
-            className="model-root-select"
-            menuClassName="model-root-menu"
-            compactMenu
-            triggerTitle={selectedRoot?.path}
-          />
-        ) : selectedRoot ? (
-          <span className="model-root-label" title={selectedRoot.path}>
-            {selectedRoot.path}
-          </span>
-        ) : null}
+        {!searchOpen &&
+          (roots.length > 1 ? (
+            <Select
+              value={root ?? ''}
+              options={rootOptions}
+              onChange={(value) => {
+                saveScroll()
+                setRoot(value)
+                setSegments([])
+                setCopyError(null)
+                setDirMotion('none')
+              }}
+              ariaLabel="选择模型目录"
+              disabled={busy || loadingPlan}
+              className="model-root-select"
+              menuClassName="model-root-menu"
+              compactMenu
+              triggerTitle={selectedRoot?.path}
+            />
+          ) : selectedRoot ? (
+            <span className="model-root-label" title={selectedRoot.path}>
+              {selectedRoot.path}
+            </span>
+          ) : null)}
         <div className="spacer" />
+        {!searchOpen && (
+          <>
+            <Button
+              type="button"
+              className={`icon-btn${loadingPlan || loadingDir ? ' is-busy' : ''}`}
+              onClick={refresh}
+              title="刷新模型目录"
+              aria-label="刷新模型目录"
+              disabled={busy}
+            >
+              <Icon name="refresh" size={14} />
+            </Button>
+            <Button
+              type="button"
+              className="icon-btn"
+              onClick={openCurrent}
+              title="在资源管理器中打开"
+              aria-label="在资源管理器中打开"
+              disabled={!listing?.exists || busy}
+            >
+              <Icon name="folder" size={14} />
+            </Button>
+          </>
+        )}
+        <div ref={searchBoxRef} className={`ov-models-search${searchOpen ? ' is-open' : ''}`}>
+          <TextInput
+            ref={searchInputRef}
+            className="model-search-input"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') closeSearch()
+            }}
+            placeholder="搜索模型"
+            aria-label="搜索模型"
+            aria-hidden={!searchOpen}
+            tabIndex={searchOpen ? 0 : -1}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
         <Button
+          ref={searchButtonRef}
           type="button"
-          className={`icon-btn${loadingPlan || loadingDir ? ' is-busy' : ''}`}
-          onClick={refresh}
-          title="刷新模型目录"
-          aria-label="刷新模型目录"
-          disabled={busy}
+          className={`icon-btn model-search-toggle${searchOpen ? ' is-on' : ''}`}
+          onClick={toggleSearch}
+          title={searchOpen ? '关闭搜索' : '搜索模型'}
+          aria-label={searchOpen ? '关闭搜索' : '搜索模型'}
+          aria-expanded={searchOpen}
         >
-          <Icon name="refresh" size={14} />
-        </Button>
-        <Button
-          type="button"
-          className="icon-btn"
-          onClick={openCurrent}
-          title="在资源管理器中打开"
-          aria-label="在资源管理器中打开"
-          disabled={!listing?.exists || busy}
-        >
-          <Icon name="folder" size={14} />
+          <Icon name={searchOpen ? 'close' : 'search'} size={14} />
         </Button>
       </div>
 
-      {roots.length > 0 && (
+      {searchMode && (
+        <div className="model-crumbs is-search">
+          <span className="model-search-caption">搜索结果 · {search.trim()}</span>
+          <div className="spacer" />
+          <span className="model-search-count">
+            {searching ? '搜索中…' : searchError ? '搜索失败' : `${searchHits.length} 项`}
+          </span>
+        </div>
+      )}
+
+      {!searchMode && roots.length > 0 && (
         <div className="model-crumbs">
           <Button
             type="button"
@@ -932,9 +1098,52 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
       )}
 
       <div
-        className="ov-models-body"
-        onContextMenu={(event) => openContextMenu(event, null)}
+        className={`ov-models-body${searchMode ? ' is-searching' : ''}`}
+        onContextMenu={(event) => {
+          if (searchMode) {
+            event.preventDefault()
+            return
+          }
+          openContextMenu(event, null)
+        }}
       >
+        {searchMode && (
+          <div
+            ref={searchResultsRef}
+            className="model-search-list"
+            role="listbox"
+            aria-label="模型搜索结果"
+          >
+            {searching ? (
+              <div className="model-search-empty">搜索中…</div>
+            ) : searchError ? (
+              <div className="model-search-empty">{searchError}</div>
+            ) : searchHits.length === 0 ? (
+              <div className="model-search-empty">没有匹配的模型</div>
+            ) : (
+              searchHits.map((hit) => (
+                <button
+                  key={`${hit.rel}/${hit.name}`}
+                  type="button"
+                  className="model-search-result"
+                  role="option"
+                  onClick={() => revealSearchHit(hit)}
+                >
+                  <Icon name={hit.isDir ? 'folder' : 'file'} size={14} />
+                  <span className="model-search-result-main">
+                    <span className="model-search-result-name">{hit.name}</span>
+                    <span className="model-search-result-dir">
+                      {hit.rel ? hit.rel.replace(/\//g, '\\') : '根目录'}
+                    </span>
+                  </span>
+                  <span className="model-search-result-meta">
+                    {hit.isDir ? '文件夹' : fmtBytes(hit.size)}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
         {loadingDir && <div className="model-progress" aria-hidden="true" />}
         {copyError && (
           <div className="model-copy-error" role="alert">
@@ -1030,6 +1239,7 @@ export default function ModelExplorer({ inst, active, notify, onOpenStorage }: P
                     selected.has(entry.name) ? ' is-selected' : ''
                   }${isCut ? ' is-cut' : ''}`}
                   key={`${entry.isDir ? 'd' : 'f'}:${entry.name}`}
+                  data-model-name={entry.name}
                   onContextMenu={(event) => openContextMenu(event, entry)}
                 >
                   <Checkbox

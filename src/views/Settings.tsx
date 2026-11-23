@@ -44,9 +44,14 @@ import {
 } from '../components/IslandShape'
 import coreLogo from '../assets/core-logo.svg'
 import {
+  DEFAULT_BACKGROUND_COLOR,
+  DEFAULT_BACKGROUND_MODE,
+  DEFAULT_CARD_SHADOW,
+  DEFAULT_CARD_SHADOW_SIZE,
   DEFAULT_DARK_PALETTE,
   DEFAULT_LIGHT_PALETTE,
   MAX_BAR_TRANSPARENCY,
+  MAX_CARD_SHADOW_SIZE,
   MAX_CARD_TRANSPARENCY,
   applyTheme,
   luminance,
@@ -57,7 +62,7 @@ import {
   rgbaHex,
   type ThemeMode,
 } from '../lib/theme'
-import { FALLBACK_FONTS, fontOptions } from '../lib/fonts'
+import { DEFAULT_FONTS, FALLBACK_FONTS, fontOptions } from '../lib/fonts'
 
 const IDLE_SHAPES: { value: IslandIdleShape; label: string }[] = [
   { value: 'chevrons', label: '箭头' },
@@ -296,11 +301,26 @@ export default function SettingsView({
   const load = useCallback(async () => {
     try {
       const next = await api.settingsGet()
-      next.ui.islandIdleShape = normalizeIslandShape(next.ui.islandIdleShape)
-      setSettings(next)
-      setEditMode(next.ui.theme)
-      setBaseline(JSON.stringify(next))
-      onPreviewTheme?.(next.ui)
+      const ui: UiOpts = {
+        ...next.ui,
+        islandIdleShape: normalizeIslandShape(next.ui.islandIdleShape),
+        backgroundMode: next.ui.backgroundMode === 'color' ? 'color' : DEFAULT_BACKGROUND_MODE,
+      }
+      // 旧版本配置里留存的图片/毛玻璃字段不再使用，丢掉避免继续写回配置文件。
+      for (const key of [
+        'backgroundImage',
+        'backgroundImageOpacity',
+        'backgroundImageBlur',
+        'cardGlass',
+        'cardBlur',
+      ]) {
+        delete (ui as unknown as Record<string, unknown>)[key]
+      }
+      const normalized = { ...next, ui }
+      setSettings(normalized)
+      setEditMode(ui.theme)
+      setBaseline(JSON.stringify(normalized))
+      onPreviewTheme?.(ui)
     } catch (e) {
       notify('err', errText(e))
     }
@@ -404,6 +424,10 @@ export default function SettingsView({
       MAX_BAR_TRANSPARENCY,
       Math.max(0, Math.round(Number(ui.barTransparency) || 0)),
     )
+    const cardShadowSize = Math.min(
+      MAX_CARD_SHADOW_SIZE,
+      Math.max(0, Math.round(Number(ui.cardShadowSize) || 0)),
+    )
     const normalizePalette = (palette: ThemePalette): ThemePalette => ({
       accent: normalizeHex(palette.accent)!,
       bgTop: normalizeHex(palette.bgTop)!,
@@ -421,6 +445,10 @@ export default function SettingsView({
         cardTransparency,
         barTransparency,
         barFollowCard: Boolean(ui.barFollowCard),
+        cardShadow: Boolean(ui.cardShadow),
+        cardShadowSize,
+        backgroundMode: ui.backgroundMode === 'color' ? 'color' : 'gradient',
+        backgroundColor: normalizeHex(ui.backgroundColor) ?? DEFAULT_BACKGROUND_COLOR,
       },
     }
     setBusy(true)
@@ -564,6 +592,17 @@ export default function SettingsView({
   const setFont = (patch: Partial<Pick<UiOpts, 'fontLatin' | 'fontCjk' | 'fontMono'>>) =>
     applyDraft({ ...settings.ui, ...patch })
 
+  const resetFonts = () =>
+    applyDraft({
+      ...settings.ui,
+      fontLatin: DEFAULT_FONTS.latin,
+      fontCjk: DEFAULT_FONTS.cjk,
+      fontMono: DEFAULT_FONTS.mono,
+    })
+
+  const setUiStyle = (uiStyle: UiOpts['uiStyle']) =>
+    applyDraft({ ...settings.ui, uiStyle })
+
   const setPalette = (key: keyof ThemePalette, value: string) => {
     const nextPalette = { ...settings.ui[editMode], [key]: value }
     const ui: UiOpts = {
@@ -595,6 +634,27 @@ export default function SettingsView({
       ...settings.ui,
       theme: editMode,
       barFollowCard: value,
+    })
+
+  const setCardShadow = (value: boolean) =>
+    applyDraft({ ...settings.ui, cardShadow: value })
+
+  const setCardShadowSize = (value: number) =>
+    applyDraft({
+      ...settings.ui,
+      cardShadowSize: Math.min(MAX_CARD_SHADOW_SIZE, Math.max(0, value)),
+    })
+
+  const setBackgroundMode = (value: UiOpts['backgroundMode']) =>
+    applyDraft({ ...settings.ui, backgroundMode: value })
+
+  const resetEffects = () =>
+    applyDraft({
+      ...settings.ui,
+      cardShadow: DEFAULT_CARD_SHADOW,
+      cardShadowSize: DEFAULT_CARD_SHADOW_SIZE,
+      backgroundMode: DEFAULT_BACKGROUND_MODE,
+      backgroundColor: DEFAULT_BACKGROUND_COLOR,
     })
 
   const resetTheme = () =>
@@ -692,10 +752,15 @@ export default function SettingsView({
   const shownBarTransparency = settings.ui.barFollowCard
     ? settings.ui.cardTransparency
     : settings.ui.barTransparency
-  // 预览里“卡片”文字跟着卡片亮度，“设置”按钮跟着渐变背景亮度。
+  const previewIsColor = settings.ui.backgroundMode === 'color'
+  const previewBgColor =
+    (previewIsColor ? normalizeHex(settings.ui.backgroundColor) : null) ?? previewMid
+  // 预览里“卡片”文字跟着卡片亮度，“设置”按钮跟着实际背景亮度。
   const previewCardInk =
-    luminance(mixHex(previewMid, previewPalette.cardColor, previewAlpha)) > 0.22 ? '#141824' : '#f5f6fb'
-  const previewBgInk = luminance(previewMid) > 0.4 ? '#141824' : '#f5f6fb'
+    luminance(mixHex(previewBgColor, previewPalette.cardColor, previewAlpha)) > 0.22
+      ? '#141824'
+      : '#f5f6fb'
+  const previewBgInk = luminance(previewBgColor) > 0.4 ? '#141824' : '#f5f6fb'
   const previewCardLine = rgbaHex(previewCardInk, 0.24)
   const previewBgLine = rgbaHex(previewBgInk, 0.24)
 
@@ -727,22 +792,50 @@ export default function SettingsView({
               <h2>外观</h2>
               <span className="badge ghost">实时预览</span>
               <div className="spacer" />
+              <Button className="ghost sm" onClick={resetFonts}>恢复默认字体</Button>
               <Button className="ghost sm" onClick={resetTheme}>恢复默认配色</Button>
+              <Button className="ghost sm" onClick={resetEffects}>恢复默认效果</Button>
             </div>
             <div className="panel-body">
-              <div className="appearance-theme-row">
-                <Segmented
-                  className="appearance-theme-tabs"
-                  ariaLabel="选择要编辑的配色"
-                  role="tablist"
-                  buttonRole="tab"
-                  value={editMode}
-                  options={[
-                    { value: 'dark', label: '暗色配色' },
-                    { value: 'light', label: '亮色配色' },
-                  ]}
-                  onChange={switchMode}
-                />
+              <div className="appearance-options-row">
+                <div className="appearance-option">
+                  <span className="appearance-style-label">界面样式</span>
+                  <Segmented
+                    ariaLabel="界面样式"
+                    value={settings.ui.uiStyle}
+                    options={[
+                      { value: 'borderless', label: '无边框' },
+                      { value: 'outlined', label: '描边' },
+                    ]}
+                    onChange={setUiStyle}
+                  />
+                </div>
+                <div className="appearance-option">
+                  <span className="appearance-style-label">背景颜色</span>
+                  <Segmented
+                    ariaLabel="背景颜色"
+                    value={settings.ui.backgroundMode}
+                    options={[
+                      { value: 'gradient', label: '渐变' },
+                      { value: 'color', label: '纯色' },
+                    ]}
+                    onChange={(value) => setBackgroundMode(value as UiOpts['backgroundMode'])}
+                  />
+                </div>
+                <div className="appearance-option">
+                  <span className="appearance-style-label">颜色模式</span>
+                  <Segmented
+                    ariaLabel="选择要编辑的配色"
+                    role="tablist"
+                    buttonRole="tab"
+                    value={editMode}
+                    options={[
+                      { value: 'dark', label: '暗色配色' },
+                      { value: 'light', label: '亮色配色' },
+                    ]}
+                    onChange={switchMode}
+                  />
+                </div>
               </div>
 
               <div className="grid-2 appearance-colors">
@@ -751,21 +844,31 @@ export default function SettingsView({
                   value={editPalette.accent}
                   onChange={(value) => setPalette('accent', value)}
                 />
-                <ColorField
-                  label="渐变顶部"
-                  value={editPalette.bgTop}
-                  onChange={(value) => setPalette('bgTop', value)}
-                />
-                <ColorField
-                  label="渐变中部"
-                  value={editPalette.bgMid}
-                  onChange={(value) => setPalette('bgMid', value)}
-                />
-                <ColorField
-                  label="渐变底部"
-                  value={editPalette.bgBottom}
-                  onChange={(value) => setPalette('bgBottom', value)}
-                />
+                {settings.ui.backgroundMode === 'gradient' ? (
+                  <>
+                    <ColorField
+                      label="渐变顶部"
+                      value={editPalette.bgTop}
+                      onChange={(value) => setPalette('bgTop', value)}
+                    />
+                    <ColorField
+                      label="渐变中部"
+                      value={editPalette.bgMid}
+                      onChange={(value) => setPalette('bgMid', value)}
+                    />
+                    <ColorField
+                      label="渐变底部"
+                      value={editPalette.bgBottom}
+                      onChange={(value) => setPalette('bgBottom', value)}
+                    />
+                  </>
+                ) : (
+                  <ColorField
+                    label="背景颜色"
+                    value={settings.ui.backgroundColor}
+                    onChange={(value) => applyDraft({ ...settings.ui, backgroundColor: value })}
+                  />
+                )}
               </div>
 
               <div className="appearance-card-row">
@@ -824,6 +927,37 @@ export default function SettingsView({
                 跟随卡片透明度
               </label>
 
+              <div className="appearance-effect-grid">
+                <div className="appearance-effect-block">
+                  <label className="toggle">
+                    <Checkbox
+                      type="checkbox"
+                      checked={settings.ui.cardShadow}
+                      onChange={(e) => setCardShadow(e.target.checked)}
+                    />
+                    卡片阴影
+                  </label>
+                  <label className="field card-alpha-field">
+                    <span>
+                      阴影大小
+                      <span className="mono card-alpha-value">
+                        {settings.ui.cardShadowSize}px
+                      </span>
+                    </span>
+                    <Range
+                      type="range"
+                      min={0}
+                      max={MAX_CARD_SHADOW_SIZE}
+                      step={1}
+                      value={settings.ui.cardShadowSize}
+                      aria-label="阴影大小"
+                      disabled={!settings.ui.cardShadow}
+                      onChange={(e) => setCardShadowSize(Number(e.target.value))}
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div className="appearance-fonts">
                 <label className="field">
                   <span>英文字体</span>
@@ -863,7 +997,9 @@ export default function SettingsView({
               <div
                 className="theme-preview"
                 style={{
-                  background: `linear-gradient(150deg, ${previewTop} 0%, ${previewMid} 52%, ${previewBottom} 100%)`,
+                  background: previewIsColor
+                    ? previewBgColor
+                    : `linear-gradient(150deg, ${previewTop} 0%, ${previewMid} 52%, ${previewBottom} 100%)`,
                 }}
               >
                 <span className="theme-preview-label" style={{ color: rgbaHex(previewBgInk, 0.62) }}>预览</span>

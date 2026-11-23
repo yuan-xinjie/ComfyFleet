@@ -289,7 +289,7 @@
 html, body, #root { height: 100%; margin: 0; }
 
 body {
-  background: linear-gradient(155deg, var(--bg-top) 0%, var(--bg-mid) 44%, var(--bg-bottom) 100%);
+  background: var(--app-bg, linear-gradient(155deg, var(--bg-top) 0%, var(--bg-mid) 44%, var(--bg-bottom) 100%));
   background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font-sans);
@@ -355,6 +355,7 @@ h6,
   outline-offset: 2px;
 }
 
+/* 滚动条只有一套：深浅主题、无边框/描边都取这里的 10px 自绘样式。 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
@@ -363,7 +364,10 @@ h6,
   border-radius: 999px;
   background-clip: content-box;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--line-strong); background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+  background-clip: content-box;
+}
 ::-webkit-scrollbar-corner { background: transparent; }
 
 input, select, textarea, button { caret-color: var(--coral); }
@@ -629,7 +633,8 @@ input, select, textarea, button { caret-color: var(--coral); }
   box-shadow: var(--shadow-1);
   cursor: pointer;
   transition: border-color 0.16s var(--ease), box-shadow 0.18s var(--ease), transform 0.16s var(--ease);
-  animation: panel-in 0.3s var(--ease-out) both;
+  /* 入场结束后要把 transform 还给 .press-card 的 3D 倾斜，所以不用 forwards fill。 */
+  animation: panel-in 0.3s var(--ease-out) backwards;
 }
 .inst-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
 .inst-card:active { transform: scale(0.995); }

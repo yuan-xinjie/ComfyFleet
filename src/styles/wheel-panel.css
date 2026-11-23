@@ -323,10 +323,6 @@
   color: var(--ink-2);
   font-size: 11px;
 }
-.wheel-filter-select .select-trigger:hover:not(:disabled) {
-  border-color: var(--line-strong);
-  background: var(--surface);
-}
 .wheel-filter-select .select-trigger[aria-expanded='true'] {
   border-color: var(--blue);
   background: var(--surface);

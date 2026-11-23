@@ -32,6 +32,16 @@ pub struct ModelListing {
     pub entries: Vec<ModelEntry>,
 }
 
+/// 模型卡搜索：`rel` 是命中项所在的目录（相对模型根），点结果时按它跳转。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSearchHit {
+    pub name: String,
+    pub rel: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCopyResult {
@@ -319,6 +329,94 @@ fn move_node(src: &Path, dest: &Path) -> Result<(), String> {
             remove_node(src).map_err(|e| format!("复制完成，但源项删除失败：{e}"))
         }
     }
+}
+
+/// 在模型根目录下递归找名字：最多 200 条命中、最多访问 2 万个条目；
+/// 跳过隐藏项、符号链接/junction，避免搜索把整个磁盘拖进来。
+fn search_model_files(root: &Path, needle: &str) -> Vec<ModelSearchHit> {
+    let mut hits = Vec::new();
+    let mut stack = vec![(root.to_path_buf(), String::new(), 0usize)];
+    let mut visited = 0usize;
+    while let Some((dir, rel, depth)) = stack.pop() {
+        if hits.len() >= 200 || visited >= 20_000 {
+            break;
+        }
+        let read = match fs::read_dir(&dir) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        for item in read {
+            if hits.len() >= 200 || visited >= 20_000 {
+                break;
+            }
+            let item = match item {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            visited += 1;
+            let name = item.file_name().to_string_lossy().to_string();
+            if hidden(&name) {
+                continue;
+            }
+            let meta = match fs::symlink_metadata(item.path()) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if is_link_like(&meta) {
+                continue;
+            }
+            let is_dir = meta.is_dir();
+            if !is_dir && !meta.is_file() {
+                continue;
+            }
+            if name.to_lowercase().contains(needle) {
+                hits.push(ModelSearchHit {
+                    name: name.clone(),
+                    rel: rel.clone(),
+                    is_dir,
+                    size: if is_dir { 0 } else { meta.len() },
+                });
+            }
+            if is_dir && depth < 7 {
+                let child_rel = if rel.is_empty() {
+                    name
+                } else {
+                    format!("{rel}/{name}")
+                };
+                stack.push((item.path(), child_rel, depth + 1));
+            }
+        }
+    }
+    hits.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.rel.to_lowercase().cmp(&b.rel.to_lowercase()))
+    });
+    hits
+}
+
+#[tauri::command]
+pub async fn models_search(
+    state: tauri::State<'_, AppState>,
+    instance_id: String,
+    root: String,
+    query: String,
+) -> Result<Vec<ModelSearchHit>, AppError> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+    let inst = load_instance(&instance_id)?;
+    let plan = storage::plan(&inst, &state.settings.lock().clone());
+    let root_path = effective_root(&plan, &root)?;
+    if !root_path.exists() || !root_path.is_dir() {
+        return Ok(Vec::new());
+    }
+    let hits = tauri::async_runtime::spawn_blocking(move || search_model_files(&root_path, &needle))
+        .await
+        .map_err(|e| AppError::new("MODEL_SEARCH_JOIN", format!("搜索任务中断：{e}")))?;
+    Ok(hits)
 }
 
 #[tauri::command]

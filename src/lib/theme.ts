@@ -29,6 +29,36 @@ export const DEFAULT_THEME = DEFAULT_DARK_PALETTE
 export const MAX_CARD_TRANSPARENCY = 80
 export const MAX_BAR_TRANSPARENCY = 80
 
+export const DEFAULT_CARD_SHADOW = true
+export const DEFAULT_CARD_SHADOW_SIZE = 18
+export const MAX_CARD_SHADOW_SIZE = 48
+export const DEFAULT_BACKGROUND_MODE = 'gradient' as const
+export const DEFAULT_BACKGROUND_COLOR = '#111525'
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(max, Math.max(min, Math.round(number)))
+}
+
+function cardShadowValue(ui: UiOpts, isLight: boolean): string {
+  const size = clampNumber(ui.cardShadowSize, 0, MAX_CARD_SHADOW_SIZE, DEFAULT_CARD_SHADOW_SIZE)
+  if (ui.cardShadow === false || size === 0) return 'none'
+  const dark = isLight ? '20, 26, 40' : '0, 0, 0'
+  return [
+    `0 ${Math.round(size * 0.62)}px ${Math.round(size * 1.9)}px -${Math.round(size * 1.05)}px rgba(${dark}, ${isLight ? 0.18 : 0.55})`,
+    `0 1px ${Math.max(2, Math.round(size * 0.18))}px rgba(${dark}, ${isLight ? 0.05 : 0.18})`,
+  ].join(', ')
+}
+
+function cardPressShadowValue(ui: UiOpts, isLight: boolean): string {
+  const size = clampNumber(ui.cardShadowSize, 0, MAX_CARD_SHADOW_SIZE, DEFAULT_CARD_SHADOW_SIZE)
+  if (ui.cardShadow === false || size === 0) return 'none'
+  const dark = isLight ? '20, 26, 40' : '0, 0, 0'
+  const press = Math.max(4, Math.round(size * 0.55))
+  return `0 ${Math.round(press * 0.7)}px ${Math.round(press * 1.7)}px -${Math.round(press * 1.2)}px rgba(${dark}, ${isLight ? 0.18 : 0.62}), 0 1px 3px rgba(${dark}, ${isLight ? 0.07 : 0.2})`
+}
+
 export function normalizeHex(input: string): string | null {
   let value = input.trim().toLowerCase()
   if (/^#[0-9a-f]{3}$/.test(value)) {
@@ -119,15 +149,13 @@ export function applyTheme(ui: UiOpts) {
   const isLight = mode === 'light'
   const theme = paletteFor(ui, mode)
   const accent = theme.accent
-  const rawTransparency = Number(ui.cardTransparency)
-  const transparency = Number.isFinite(rawTransparency)
-    ? Math.min(MAX_CARD_TRANSPARENCY, Math.max(0, rawTransparency))
-    : 12
+  const transparency = clampNumber(ui.cardTransparency, 0, MAX_CARD_TRANSPARENCY, 12)
   const cardAlpha = 1 - transparency / 100
 
   const root = document.documentElement
   root.dataset.theme = mode
   root.classList.toggle('theme-light', isLight)
+  root.dataset.uiStyle = ui.uiStyle === 'outlined' ? 'outlined' : 'borderless'
 
   const fonts = uiFontStacks(ui)
   root.style.setProperty('--font-sans', fonts.sans)
@@ -214,9 +242,12 @@ export function applyTheme(ui: UiOpts) {
   root.style.setProperty('--card-ink-3', rgbaHex(cardInk, 0.74))
   root.style.setProperty('--card-ink-4', rgbaHex(cardInk, 0.66))
 
-  // 顶栏、页面和实色卡片各自有自己的底色，文字不能共用一套 ink。
-  const topbarInk = contrastInk(theme.bgTop)
-  const pageInk = contrastInk(theme.bgMid)
+  const backgroundMode = ui.backgroundMode === 'color' ? 'color' : DEFAULT_BACKGROUND_MODE
+  const backgroundColor = normalizeHex(ui.backgroundColor) ?? DEFAULT_BACKGROUND_COLOR
+
+  // 顶栏、页面和实色卡片各自有自己的底色；自定义纯色时按背景底色重算文字。
+  const topbarInk = contrastInk(backgroundMode === 'gradient' ? theme.bgTop : backgroundColor)
+  const pageInk = contrastInk(backgroundMode === 'gradient' ? theme.bgMid : backgroundColor)
   const cardSolidInk = contrastInk(theme.cardColor)
   setInkFamily(root, 'topbar', topbarInk)
   setInkFamily(root, 'page', pageInk)
@@ -228,4 +259,10 @@ export function applyTheme(ui: UiOpts) {
   root.style.setProperty('--bg-top', theme.bgTop)
   root.style.setProperty('--bg-mid', theme.bgMid)
   root.style.setProperty('--bg-bottom', theme.bgBottom)
+
+  root.style.setProperty('--ui-card-shadow', cardShadowValue(ui, isLight))
+  root.style.setProperty('--ui-press-shadow', cardPressShadowValue(ui, isLight))
+
+  const gradient = `linear-gradient(155deg, ${theme.bgTop} 0%, ${theme.bgMid} 44%, ${theme.bgBottom} 100%)`
+  root.style.setProperty('--app-bg', backgroundMode === 'gradient' ? gradient : backgroundColor)
 }

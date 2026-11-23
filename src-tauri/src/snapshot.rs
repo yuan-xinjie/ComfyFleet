@@ -1282,20 +1282,6 @@ pub fn states_match(a: &Snapshot, b: &Snapshot) -> bool {
     a.packages == b.packages
 }
 
-/// 启动时拍快照：与最新一条相同就跳过（不然时间线全是重复）。
-pub fn capture_boot(inst: &InstanceConfig, settings: &GlobalSettings) -> Option<Snapshot> {
-    let base = dir(inst);
-    let mut snap = capture(inst, settings, T_BOOT, None);
-    if let Some(newest) = list_in(&base).into_iter().next() {
-        if states_match(&newest, &snap) {
-            return None;
-        }
-    }
-    archive_and_save(&base, inst, settings, &mut snap, false).ok()?;
-    prune_in(&base, settings.sync.snapshot_max as usize);
-    Some(snap)
-}
-
 /// 版本切换/更新前后的快照：调用方决定是否强制。
 /// 更新、恢复前使用 required 版本，拍不下来就中止，避免没有回滚点。
 ///
@@ -1349,6 +1335,8 @@ pub fn capture_and_save(
     let base = dir(inst);
     let mut snap = capture(inst, settings, trigger, label);
     archive_and_save(&base, inst, settings, &mut snap, true)?;
+    // 启动不再自动拍快照；这里顺带清理历史遗留的 boot 快照（只裁无备注的 boot）。
+    prune_in(&base, settings.sync.snapshot_max as usize);
     Ok(snap)
 }
 
@@ -2124,7 +2112,7 @@ pub fn restore(
         ctx.inst,
         ctx.settings,
         T_PRE_RESTORE,
-        Some("pre-restore".into()),
+        None,
     )?;
     report.pre_snapshot = Some(pre.id.clone());
     emit(RestoreEvent::new(

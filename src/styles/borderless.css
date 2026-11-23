@@ -1,0 +1,410 @@
+/* ============================================================
+   无边框外观（data-ui-style="borderless"）
+   所有装饰线都从组件层移除：面板、列表、记录、浮层、表单。
+   层级只靠底色、软填充、留白和一层很淡的投影，不靠 1px 线。
+   这是一个全局样式层；页面不单独写“无边框”分支。
+   ============================================================ */
+
+:root[data-ui-style='borderless'] {
+  --line: transparent;
+  --line-2: transparent;
+  --line-strong: transparent;
+  --flat-fill: color-mix(in srgb, var(--ink) 5%, transparent);
+  --flat-fill-strong: color-mix(in srgb, var(--ink) 9%, transparent);
+  --flat-field: color-mix(in srgb, var(--ink) 7%, transparent);
+  --flat-field-hover: color-mix(in srgb, var(--ink) 10%, transparent);
+  --flat-field-focus: color-mix(in srgb, var(--blue) 8%, var(--flat-field));
+  --flat-shadow: 0 20px 46px -36px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.14);
+  --flat-press-shadow: 0 8px 22px -16px rgba(0, 0, 0, 0.62), 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-ui-style='borderless'].theme-light {
+  --flat-fill: color-mix(in srgb, var(--ink) 4%, transparent);
+  --flat-fill-strong: color-mix(in srgb, var(--ink) 7%, transparent);
+  --flat-field: color-mix(in srgb, var(--ink) 5%, transparent);
+  --flat-field-hover: color-mix(in srgb, var(--ink) 8%, transparent);
+  --flat-field-focus: color-mix(in srgb, var(--blue) 7%, var(--flat-field));
+  --flat-shadow: 0 18px 40px -34px rgba(20, 26, 40, 0.26), 0 2px 8px rgba(20, 26, 40, 0.05);
+  --flat-press-shadow: 0 6px 18px -14px rgba(20, 26, 40, 0.18), 0 1px 3px rgba(20, 26, 40, 0.07);
+}
+
+/* 面板与实例卡：去掉描边，用投影承担与页面的分层。 */
+:root[data-ui-style='borderless'] :is(.panel, .inst-card) {
+  border-color: transparent;
+  box-shadow: var(--ui-card-shadow, var(--flat-shadow));
+}
+
+:root[data-ui-style='borderless'] .inst-card:hover {
+  border-color: transparent;
+  box-shadow: var(--ui-card-shadow, var(--flat-shadow));
+}
+
+/* 面板头、记录行、列表、设置导航等原本靠发丝线分层的位置，全部交给留白。 */
+:root[data-ui-style='borderless'] :is(
+  .panel-head,
+  .panel-body,
+  .record,
+  .tag-row,
+  .settings-nav,
+  .node-row,
+  .model-row,
+  .model-crumbs,
+  .sync-section,
+  .sync-instance-row,
+  .sync-event,
+  .sync-local-row,
+  .sync-facts > div,
+  .sync-diff-summary > div,
+  .storage-row,
+  .activity-row
+) {
+  border-color: transparent;
+}
+
+/* 浮层、终端、提示条和状态徽标同样不画线；浮层只剩投影。 */
+:root[data-ui-style='borderless'] :is(
+  .modal,
+  .select-menu,
+  .model-menu,
+  .model-search-list,
+  .toast,
+  .banner,
+  .badge,
+  .snap-latest-badge,
+  .switch-track,
+  .cdock-panel,
+  .cdock-head,
+  .cdock-foot,
+  .cdock-log,
+  .console-dock,
+  .console-dock-log,
+  .console-dock-head,
+  .console-dock-foot,
+  .log-view,
+  .term-shell,
+  .terminal-shell,
+  .op-run-output,
+  .install-log
+) {
+  border-color: transparent;
+}
+
+:root[data-ui-style='borderless'] :is(.modal, .select-menu, .model-menu) {
+  box-shadow: var(--shadow-2);
+}
+
+/* 表单：静息用低对比软填充、不画边框；hover / focus 和「描边」样式同一套逻辑——
+   底色始终不变，只把边框从 1px 加到视觉 2px（1px 边框 + 1px 同色内描边）。 */
+:root[data-ui-style='borderless'] :is(
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']):not([type='button']):not([type='submit']):not([type='reset']):not([type='file']),
+  textarea,
+  select,
+  .select-trigger
+):not(:focus):not(:focus-within):not([aria-expanded='true']) {
+  background-color: var(--flat-field);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* hover：底色不动，只换成 1px 主题色边框。 */
+:root[data-ui-style='borderless'] :is(
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']):not([type='button']):not([type='submit']):not([type='reset']):not([type='file']):not(.select-input),
+  textarea,
+  select
+):not(:disabled):not(:focus):not(:focus-within):hover {
+  background-color: var(--flat-field);
+  border-color: var(--blue) !important;
+  box-shadow: none;
+}
+
+/* 下拉 trigger 的静息 / hover：单击只留下 :focus、没有 :focus-visible；收起后回到静息外观，
+   不能被主题的 hover 规则重新画上主题色边框。focus-within 对 trigger 自己也成立，
+   所以只排除「可编辑 trigger 的内部输入框仍有焦点」这种情况。 */
+:root[data-ui-style='borderless'] .select-trigger:not([aria-expanded='true']):not(:focus-visible):not(.is-editable:focus-within) {
+  background-color: var(--flat-field);
+  border-color: transparent !important;
+  box-shadow: none;
+}
+
+:root[data-ui-style='borderless'] .select-trigger:not([aria-expanded='true']):not(:focus-visible):not(.is-editable:focus-within):hover:not(:disabled) {
+  background-color: var(--flat-field);
+  border-color: var(--blue) !important;
+  box-shadow: none;
+}
+
+/* 聚焦 / 展开：底色仍是同一档软底；1px 边框 + 1px 同色内描边（视觉 2px），不加外圈、
+   不用 outline，也不改变外框尺寸和圆角。 */
+:root[data-ui-style='borderless'] :is(
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']):not([type='button']):not([type='submit']):not([type='reset']):not([type='file']),
+  textarea,
+  select
+):focus:not(:disabled):not(.select-input),
+:root[data-ui-style='borderless'] .select-trigger:focus-visible,
+:root[data-ui-style='borderless'] .select-trigger[aria-expanded='true'],
+:root[data-ui-style='borderless'] .select-trigger.is-editable:focus-within {
+  background-color: var(--flat-field) !important;
+  border-color: var(--blue) !important;
+  box-shadow: inset 0 0 0 1px var(--blue);
+  outline: none;
+}
+
+/* 可编辑 trigger 的字写在 trigger 里：内嵌输入框不自己画边框、内描边和底色，
+   否则会和无边框 trigger 的软底叠成一块矩形。 */
+:root[data-ui-style='borderless'] .select .select-trigger.is-editable .select-input,
+:root[data-ui-style='borderless'] .select .select-trigger.is-editable .select-input:hover,
+:root[data-ui-style='borderless'] .select .select-trigger.is-editable .select-input:focus {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none;
+  outline: none;
+}
+
+/* 所有按钮共用同一条无边框交互规则：hover / active 不再画任何边线。 */
+:root[data-ui-style='borderless'] :is(button, .btn):not(.select-trigger):is(:hover, :active) {
+  border-color: transparent !important;
+}
+
+/* 幽灵按钮改成软填充块；图标按钮保持透明，只在 hover 出现底。 */
+:root[data-ui-style='borderless'] :is(button.ghost, .btn.ghost) {
+  border-color: transparent;
+  background-color: var(--flat-fill);
+}
+
+:root[data-ui-style='borderless'] :is(button.ghost, .btn.ghost):hover:not(:disabled) {
+  background-color: var(--flat-fill-strong);
+}
+
+:root[data-ui-style='borderless'] .icon-btn {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+:root[data-ui-style='borderless'] .icon-btn:hover:not(:disabled) {
+  background-color: var(--flat-fill);
+}
+
+/* 窗口按钮：无边框用软填充表示 hover，不带描边/内环；关闭仍是红色软底。 */
+:root[data-ui-style='borderless'] .win-btn:not(.close):hover:not(:disabled) {
+  background: var(--flat-fill-strong);
+  box-shadow: none;
+  color: var(--ink);
+}
+
+:root[data-ui-style='borderless'] .win-btn:not(.close):active:not(:disabled) {
+  background: var(--flat-fill-strong);
+}
+
+:root[data-ui-style='borderless'] .win-btn.close:hover:not(:disabled) {
+  background: var(--red-wash);
+  box-shadow: none;
+  color: var(--red);
+}
+
+:root[data-ui-style='borderless'] .win-btn.close:active:not(:disabled) {
+  background: var(--red-wash);
+  color: var(--red);
+}
+
+/* 无边框下徽标不画线，用一层很淡的软底把标题右侧的小提示和背景分开。 */
+:root[data-ui-style='borderless'] .badge.ghost {
+  background-color: var(--flat-fill);
+  border-color: transparent;
+}
+
+/* 复选框、颜色样片是操作控件，不是装饰线；保留一个软填充的可点击面。 */
+:root[data-ui-style='borderless'] input[type='checkbox']:not(:checked):not(:disabled) {
+  border-color: transparent;
+  background-color: var(--flat-field);
+}
+
+:root[data-ui-style='borderless'] input[type='checkbox']:checked {
+  border-color: transparent;
+}
+
+/* 鼠标点选（勾上/取消）后焦点会留在复选框上，页面的 input:focus 蓝圈会变成一圈多余的边框；
+   键盘 Tab 过来的 :focus-visible 仍保留焦点提示。 */
+:root[data-ui-style='borderless'] input[type='checkbox']:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+
+:root[data-ui-style='borderless'] .switch:hover input:not(:checked):not(:disabled) + .switch-track,
+:root[data-ui-style='borderless'] .switch input:checked + .switch-track {
+  border-color: transparent;
+}
+
+:root[data-ui-style='borderless'] input.color-chip {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--flat-fill-strong);
+}
+
+/* 顶栏、底栏和终端上沿原本的 1px 接缝。 */
+:root[data-ui-style='borderless'] .topbar,
+:root[data-ui-style='borderless'] .bottombar {
+  border-color: transparent;
+}
+
+/* 设置页：左侧导航压成次级软底，右侧详情用卡片阴影抬起，层级一眼分开。 */
+:root[data-ui-style='borderless'] .settings-layout {
+  gap: 22px;
+}
+
+/* 悬浮和聚焦也换成无边框语言：不再套主题色边线，改用填充、柔光和外圈。 */
+:root[data-ui-style='borderless'] :is(
+  button,
+  .btn,
+  .tab,
+  .settings-nav,
+  .dir-btn,
+  .icon-btn,
+  .node-row,
+  .tag-row,
+  .snap-row-head,
+  .model-crumb,
+  .select-option
+):not(.select-trigger):is(:hover, :focus-visible) {
+  border-color: transparent;
+}
+
+:root[data-ui-style='borderless'] :is(
+  .tab:not(.active),
+  .settings-nav:not(.active),
+  .node-row,
+  .tag-row:not(.current),
+  .snap-row-head,
+  .model-crumb:not(.is-current),
+  .check-row,
+  .share-row
+):hover:not(:disabled) {
+  background-color: var(--flat-fill);
+}
+
+:root[data-ui-style='borderless'] :is(
+  button,
+  .btn,
+  .tab,
+  .settings-nav,
+  .node-row,
+  .tag-row,
+  .snap-row-head,
+  .model-crumb,
+  .dir-btn
+):not(.select-trigger):focus-visible {
+  outline: 2px solid var(--blue-ring);
+  outline-offset: 3px;
+}
+
+:root[data-ui-style='borderless'] .settings-nav-glider {
+  border-color: transparent;
+}
+
+/* 这些组件原来直接吃卡片底色，去掉描边后会和卡片融为一体；单独给一层软底。 */
+:root[data-ui-style='borderless'] :is(
+  .dir-btn,
+  .launch-command,
+  .launch-filter:not(.active),
+  .cmd-preview,
+  .eff-row,
+  .snap-missing-wheels > li,
+  .sync-prepare,
+  .sync-confirm,
+  .sync-target,
+  .sync-log,
+  .wheel-package-card,
+  .version-dirty-list,
+  .theme-preview-ghost,
+  .theme-preview-alpha
+) {
+  background-color: var(--flat-fill);
+  border-color: transparent;
+}
+
+/* 快照恢复中的状态块仍保留一块软底；创建表单本身不再套卡片。 */
+:root[data-ui-style='borderless'] .snap-save-box:is(.is-running, .is-ok, .is-err) {
+  background-color: var(--flat-fill);
+  border-color: transparent;
+}
+
+:root[data-ui-style='borderless'] .dir-btn:hover:not(:disabled) {
+  background-color: var(--flat-fill-strong);
+  border-color: transparent;
+}
+
+:root[data-ui-style='borderless'] .wheel-package-card:hover {
+  background-color: var(--flat-fill-strong);
+  border-color: transparent;
+}
+
+:root[data-ui-style='borderless'] :is(
+  .sync-panel,
+  .sync-timeline,
+  .sync-entry-pane,
+  .sync-empty.is-page
+) {
+  border-color: transparent;
+  box-shadow: var(--ui-card-shadow, var(--flat-shadow));
+}
+
+/* 卡片统一阴影，两种界面样式共用同一组外观设置。 */
+:is(
+  .panel,
+  .settings-rail,
+  .inst-card,
+  .sync-panel,
+  .sync-timeline,
+  .sync-entry-pane,
+  .sync-empty.is-page,
+  .sync-prepare,
+  .sync-confirm,
+  .snap-card,
+  .wheel-package-card
+) {
+  box-shadow: var(--ui-card-shadow, var(--card-shadow));
+}
+
+.inst-card:hover {
+  box-shadow: var(--ui-card-shadow, var(--card-shadow));
+}
+
+/* 首页实例卡：指针位置驱动很小的 3D 倾斜（像拿在手里转着看）；旋转轴固定在卡片中心，
+   鼠标所在的那半边向内压、对侧轻轻抬起，从任意方向进入都不会出现“对侧飞天”的错觉。
+   选择器带上 .inst-card 提高特异性，避免被 refine.css 的 .inst-card:hover 清掉 transform。 */
+.press-card.inst-card {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  transform-origin: 50% 50%;
+  transform: perspective(900px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+  transition:
+    transform 0.18s var(--ease-out),
+    translate 0.18s var(--ease-out),
+    scale 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out);
+  will-change: transform;
+}
+
+.press-card.inst-card:hover {
+  background-color: var(--card);
+  border-color: var(--line);
+}
+
+:root[data-ui-style] .press-card[data-pressing='true'] {
+  translate: 0 4px;
+  scale: 0.986;
+  box-shadow: var(--ui-press-shadow, var(--card-shadow));
+}
+
+/* 滚动条统一沿用 base.css 的全局样式：无边框不再单独改细杆/粗细。 */
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .inst-card,
+  .press-card {
+    transition: none;
+  }
+
+  .press-card:hover,
+  .press-card[data-pressing='true'] {
+    translate: none;
+    scale: none;
+    transform: none;
+  }
+}

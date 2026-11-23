@@ -538,22 +538,24 @@
   animation: island-chevron-blink var(--island-blink-duration, 3.4s) var(--ease) infinite;
 }
 
+/* 用裁剪模拟闭眼，不再缩放整个 SVG/图形层；缩放会让 WebView2 在压缩高度上缓存纹理，
+   恢复时偶发出现马赛克。 */
 @keyframes island-chevron-blink {
   0%,
   40%,
   56%,
   100% {
     opacity: 1;
-    transform: translateY(-50%) scaleY(1);
+    clip-path: inset(0 0 0 0);
   }
   44%,
   48% {
     opacity: 0.55;
-    transform: translateY(-50%) scaleY(0.08);
+    clip-path: inset(45% 0 45% 0);
   }
   52% {
     opacity: 1;
-    transform: translateY(-50%) scaleY(1);
+    clip-path: inset(0 0 0 0);
   }
 }
 
@@ -615,11 +617,11 @@
   38%,
   52%,
   100% {
-    transform: translateY(-50%) scaleY(1);
+    clip-path: inset(0 0 0 0);
   }
   42%,
   48% {
-    transform: translateY(-50%) scaleY(0.14);
+    clip-path: inset(45% 0 45% 0);
   }
 }
 
@@ -779,23 +781,24 @@
   transform-origin: center;
 }
 
-/* 一次眨眼：闭合约 4%，停约 4%，再回开；不降到全透明，避免像闪烁。 */
+/* 一次眨眼：闭合约 4%，停约 4%，再回开；不降到全透明，避免像闪烁。
+   用裁剪而不是 scaleY，保持图形层始终按原始像素渲染。 */
 @keyframes island-blink {
   0%,
   40%,
   56%,
   100% {
     opacity: 1;
-    transform: scaleY(1);
+    clip-path: inset(0 0 0 0);
   }
   44%,
   48% {
     opacity: 0.55;
-    transform: scaleY(0.08);
+    clip-path: inset(45% 0 45% 0);
   }
   52% {
     opacity: 1;
-    transform: scaleY(1);
+    clip-path: inset(0 0 0 0);
   }
 }
 

@@ -2,17 +2,24 @@ import type { FontFamily, UiOpts } from '../types'
 
 export type FontRole = 'latin' | 'cjk' | 'mono'
 
+/** 与 Rust 端的默认字体保持一致；外观里的「恢复默认字体」回到这一组。 */
+export const DEFAULT_FONTS = {
+  latin: 'Segoe UI',
+  cjk: 'Microsoft YaHei UI',
+  mono: 'Cascadia Mono',
+} as const
+
 /** 系统字体枚举失败时至少还能选这些 Windows 自带字体。 */
 export const FALLBACK_FONTS: FontFamily[] = [
-  { name: 'Segoe UI', cjk: false, mono: false },
+  { name: DEFAULT_FONTS.latin, cjk: false, mono: false },
   { name: 'Arial', cjk: false, mono: false },
   { name: 'Tahoma', cjk: false, mono: false },
-  { name: 'Microsoft YaHei UI', cjk: true, mono: false },
+  { name: DEFAULT_FONTS.cjk, cjk: true, mono: false },
   { name: 'Microsoft YaHei', cjk: true, mono: false },
   { name: 'DengXian', cjk: true, mono: false },
   { name: 'SimSun', cjk: true, mono: false },
   { name: 'SimHei', cjk: true, mono: false },
-  { name: 'Cascadia Mono', cjk: false, mono: true },
+  { name: DEFAULT_FONTS.mono, cjk: false, mono: true },
   { name: 'Consolas', cjk: false, mono: true },
 ]
 

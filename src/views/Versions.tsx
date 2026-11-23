@@ -182,7 +182,6 @@ function DirtyFilesDialog({
 /** 版本管理：切稳定版 / 开发版、看当前版本、看切换的控制台输出 */
 export default function Versions({
   instanceId,
-  instanceName,
   canSwitch,
   notify,
   onChanged,
@@ -194,11 +193,8 @@ export default function Versions({
   const [commits, setCommits] = useState<DevCommit[] | null>(null)
   const [commitsLoading, setCommitsLoading] = useState(false)
   const [commitsError, setCommitsError] = useState<string | null>(null)
-  const [behind, setBehind] = useState<number | null>(null)
-  const [checked, setChecked] = useState(false)
   const [tab, setTab] = useState<Channel>('stable')
   const [pending, setPending] = useState<Pending | null>(null)
-  const [pendingUpdate, setPendingUpdate] = useState(false)
   const [dirtyFiles, setDirtyFiles] = useState<VersionDirtyFile[]>([])
   const [dirtyOpen, setDirtyOpen] = useState(false)
   const [dirtyLoading, setDirtyLoading] = useState(false)
@@ -230,11 +226,8 @@ export default function Versions({
       const [v, t] = await Promise.all([api.versionInfo(instanceId), api.versionTags(instanceId)])
       setInfo(v)
       setTags(t)
-      setBehind(null)
-      setChecked(false)
       setDirtyFiles([])
       setDirtyOpen(false)
-      setPendingUpdate(false)
       setPending(null)
       // 切完自动回到"当前通道"那份列表，别让人接着看另一边的历史
       setTab(v.channel === 'dev' ? 'dev' : 'stable')
@@ -298,20 +291,6 @@ export default function Versions({
     }
   }
 
-  const check = async () => {
-    setBusy(true)
-    try {
-      const n = await api.versionCheck(instanceId)
-      setBehind(n)
-      setChecked(true)
-      notify('ok', n === 0 ? '已是最新' : n === null ? '远端有更新的提交' : `落后 ${n} 个提交`)
-    } catch (e) {
-      notify('err', errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const loadDirtyFiles = async (): Promise<VersionDirtyFile[] | null> => {
     setDirtyLoading(true)
     try {
@@ -343,59 +322,6 @@ export default function Versions({
     if (files) {
       setDirtyOpen(false)
       setPending({ ...p, clean: true })
-    }
-  }
-
-  const requestUpdate = async () => {
-    if (!info?.dirty) {
-      await update(false)
-      return
-    }
-    const files = await loadDirtyFiles()
-    if (files) {
-      setDirtyOpen(false)
-      setPendingUpdate(true)
-    }
-  }
-
-  const update = async (clean = false) => {
-    if (clean) {
-      // 清单一度停留在页面上，期间工作区可能又被改了；确认前必须复查。
-      const expected = dirtyFiles
-      const latest = await loadDirtyFiles()
-      if (!latest) return
-      if (dirtyFilesKey(latest) !== dirtyFilesKey(expected)) {
-        notify('err', '工作区改动已变化，请重新确认清理清单')
-        return
-      }
-    }
-    setPendingUpdate(false)
-    setDirtyOpen(false)
-    setBusy(true)
-    setCancelling(false)
-    setLogs([])
-    setOpEvents([])
-    setOpTab('detail')
-    setConsoleTarget(`更新 ${DEV_BRANCH} 到最新`)
-    setConsoleTitle(`更新 ${DEV_BRANCH} 到最新`)
-    setConsoleState('running')
-    setConsoleOpen(false)
-    try {
-      const v = await api.versionUpdate(instanceId, pushEvent, clean)
-      setConsoleState('ok')
-      notify('ok', `已更新到 ${v.current}`)
-      onChanged?.()
-    } catch (e) {
-      const text = errText(e)
-      const wasCancelled = text.includes('VERSION_CANCELLED') || text.includes('CMD_CANCELLED')
-      setConsoleState(wasCancelled ? 'cancelled' : 'failed')
-      notify(wasCancelled ? 'ok' : 'err', wasCancelled ? '已取消依赖安装' : text)
-      // 可能已经拉到新提交、只是依赖没装完：同样刷新
-      onChanged?.()
-    } finally {
-      await load()
-      setCommits(null)
-      setBusy(false)
     }
   }
 
@@ -458,7 +384,6 @@ export default function Versions({
   const dev = info?.channel === 'dev'
   const detached = info?.branch === 'HEAD'
   const onDevBranch = info?.branch === DEV_BRANCH
-  const wrongBranch = !!info && !detached && info.branch !== DEV_BRANCH
   const channelText = info
     ? dev
       ? `开发版 · ${detached ? info.commit : info.branch}`
@@ -502,7 +427,6 @@ export default function Versions({
       <div className="panel">
         <div className="panel-head">
           <h2>当前版本</h2>
-          <span className="badge ghost">{instanceName}</span>
           {info && <span className={`badge ${dev ? 'ghost' : 'ok'}`}>{channelText}</span>}
           <div className="spacer" />
           {logs.length > 0 && (
@@ -515,38 +439,6 @@ export default function Versions({
               查看日志
             </IconTextButton>
           )}
-          <IconTextButton
-            className="ghost sm"
-            onClick={() => void check()}
-            disabled={busy || detached || loading}
-            title={
-              detached
-                ? '没有跟随分支，没有"落后几个提交"的概念；先切到开发版 master'
-                : !canSwitch
-                  ? '先停止实例'
-                  : '与远端比对提交数'
-            }
-           icon="refresh" iconSize={13}>
-            
-            检查更新
-          </IconTextButton>
-          <IconTextButton
-            className="primary sm"
-            onClick={() => void requestUpdate()}
-            disabled={busy || dirtyLoading || detached || loading || !canSwitch || wrongBranch}
-            title={
-              detached
-                ? `没有跟随分支；先切到开发版 ${DEV_BRANCH}，或直接选一个提交`
-                : !canSwitch
-                  ? '先停止实例'
-                  : wrongBranch
-                    ? `版本更新固定跟随 ${DEV_BRANCH}；先切到开发版 ${DEV_BRANCH}`
-                    : `拉取 ${DEV_BRANCH} 的最新提交；工作区有改动时会先确认清理清单`
-            }
-           icon="download" iconSize={13}>
-            
-            更新到最新
-          </IconTextButton>
         </div>
         <div className="panel-body" style={{ paddingTop: 6 }}>
           {error && <div className="banner err">{error}</div>}
@@ -588,18 +480,6 @@ export default function Versions({
                   <div className="record">
                     <span className="k">远端</span>
                     <span className="v mono">{info.remote.replace(/\.git$/, '')}</span>
-                  </div>
-                )}
-                {checked && (
-                  <div className="record">
-                    <span className="k">落后</span>
-                    <span className="v">
-                      {behind === 0
-                        ? '已是最新'
-                        : behind === null
-                          ? '有更新（浅克隆数不清几个提交）'
-                          : `${behind} 个提交`}
-                    </span>
                   </div>
                 )}
               </div>
@@ -660,32 +540,6 @@ export default function Versions({
                   className="ghost sm"
                   onClick={() => {
                     setPending(null)
-                    setDirtyFiles([])
-                    setDirtyOpen(false)
-                  }}
-                >
-                  取消
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {pendingUpdate && (
-            <div className="banner warn" style={{ margin: 12 }}>
-              <div>
-                <strong>更新 {DEV_BRANCH} 到最新？</strong>
-                更新前会清理工作区里的 {dirtyFiles.length} 个未提交文件，然后拉取 {DEV_BRANCH}{' '}
-                并重装依赖。
-              </div>
-              <DirtyFileList files={dirtyFiles} />
-              <div className="row" style={{ marginTop: 8 }}>
-                <Button className="primary sm" disabled={busy} onClick={() => void update(true)}>
-                  清理并更新
-                </Button>
-                <Button
-                  className="ghost sm"
-                  onClick={() => {
-                    setPendingUpdate(false)
                     setDirtyFiles([])
                     setDirtyOpen(false)
                   }}

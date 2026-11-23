@@ -229,6 +229,21 @@ pub fn run() {
             );
             wheelhouse::ensure_default_dir();
             app.manage(state::AppState::new(settings.clone()));
+            // 旧版本给加速库轮子写坏的非标准 direct_url.json 会让 uv 读取环境失败；
+            // 启动后扫描各实例 venv 修一遍，避免用户下次装包时报 DirectUrl 反序列化错误。
+            std::thread::spawn(|| {
+                if let Ok(list) = crate::commands::instance::instance_list() {
+                    let mut fixed = 0usize;
+                    for inst in list {
+                        if let Some(py) = runtime::resolve_python(&inst) {
+                            fixed += runtime::repair_direct_urls(&py);
+                        }
+                    }
+                    if fixed > 0 {
+                        log::info!("已修复 {fixed} 条不规范的 direct_url.json");
+                    }
+                }
+            });
             // 启动时按设置回收旧同步缓存；正在等待/运行的任务由 prune 内部保护。
             let cache_keep = settings.sync.sync_cache_keep;
             std::thread::spawn(move || {
@@ -372,6 +387,7 @@ pub fn run() {
             commands::nodes::nodes_remove,
             commands::nodes::nodes_check_updates,
             commands::models::models_list,
+            commands::models::models_search,
             commands::models::models_copy,
             commands::models::models_rename,
             commands::models::models_mkdir,

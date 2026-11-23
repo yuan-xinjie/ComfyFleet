@@ -254,7 +254,6 @@ textarea {
   line-height: 1.4;
   transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease);
 }
-input:hover, select:hover, textarea:hover { border-color: rgba(0, 0, 0, 0.26); }
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--blue);
@@ -936,7 +935,7 @@ pre.install-log.log-preview {
 
 /* ---------------------------------------------------------------- 设置 */
 
-.settings-body { display: grid; gap: 22px; }
+.settings-body { display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
 .settings-body section { display: grid; gap: 10px; }
 .settings-body .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 

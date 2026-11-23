@@ -13,7 +13,6 @@ import type {
   VersionEvent,
 } from '../types'
 import { TABS, stateText, type InstTab } from '../lib/state'
-import { comfyPath } from '../lib/paths'
 import { type TabSaveHandle } from '../lib/useTabSave'
 import { useInstanceLogStream } from '../lib/useInstanceLogStream'
 import { useInstanceProgress } from '../lib/useInstanceProgress'
@@ -240,7 +239,6 @@ export default function InstanceDetail(props: Props) {
   const [snapshotBusy, setSnapshotBusy] = useState(false)
   const [nodesBusy, setNodesBusy] = useState(false)
   const [settingsBusy, setSettingsBusy] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [tabSaves, setTabSaves] = useState<Partial<Record<InstTab, TabSaveHandle>>>({})
   const [mountedTabs, setMountedTabs] = useState<Record<InstTab, boolean>>(() =>
     Object.fromEntries(TABS.map((t) => [t.id, t.id === 'overview'])) as Record<InstTab, boolean>,
@@ -692,16 +690,6 @@ export default function InstanceDetail(props: Props) {
     }
   }
 
-  const copyUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1600)
-    } catch (e) {
-      notify('err', errText(e))
-    }
-  }
-
   const install = async () => {
     setInstalling(true)
     setCancelling(false)
@@ -791,7 +779,6 @@ export default function InstanceDetail(props: Props) {
     return measured && measured !== e.torchVersion ? e.label.replace(/ · torch [^·]+$/, '') : e.label
   }, [plan, inst.engine, inst.engineDetail?.torchVersion])
 
-  const url = `http://${inst.server.listen === '0.0.0.0' ? '127.0.0.1' : inst.server.listen}:${inst.server.port}`
   const vramPct =
     health && health.vramTotalMib > 0 ? Math.min(100, (health.vramUsedMib / health.vramTotalMib) * 100) : 0
   const vramTone = vramPct >= 90 ? 'warn' : ''
@@ -1042,19 +1029,6 @@ export default function InstanceDetail(props: Props) {
                   
                   打开目录
                 </IconTextButton>
-                <IconTextButton
-                  className="ghost sm"
-                  onClick={() => void openDir(comfyPath(inst, 'custom_nodes'))}
-                  disabled={!installed}
-                  title="打开 custom_nodes"
-                 icon="nodes" iconSize={13}>
-                  
-                  节点目录
-                </IconTextButton>
-                <IconTextButton className="ghost sm" onClick={() => setTab('storage')} disabled={!installed} icon="box" iconSize={13}>
-                  
-                  模型与存储
-                </IconTextButton>
                 <PopPresence show={running}>
                   <IconTextButton
                     className="ghost sm"
@@ -1065,10 +1039,6 @@ export default function InstanceDetail(props: Props) {
                     打开浏览器
                   </IconTextButton>
                 </PopPresence>
-                <IconTextButton className="ghost sm" onClick={() => void copyUrl()} title="复制 ComfyUI 地址" icon={copied ? 'check' : 'copy'} iconSize={13}>
-                  
-                  {copied ? '已复制' : '复制地址'}
-                </IconTextButton>
                 <IconTextButton className="ghost sm" onClick={() => setDiagOpen(true)} icon="diagnostics" iconSize={13}>
                   
                   诊断

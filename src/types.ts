@@ -128,6 +128,14 @@ export interface ModelListing {
   entries: ModelEntry[]
 }
 
+/** 模型搜索命中；rel 是所在目录，点击后跳到这个目录并选中文件。 */
+export interface ModelSearchHit {
+  name: string
+  rel: string
+  isDir: boolean
+  size: number
+}
+
 /** 拖文件进模型目录后的结果；copied/skipped/failed 都按文件数算 */
 export interface ModelCopyResult {
   copied: number
@@ -181,10 +189,15 @@ export interface FontFamily {
   mono: boolean
 }
 
+export type UiStyle = 'borderless' | 'outlined'
+export type BackgroundMode = 'gradient' | 'color'
+
 export interface UiOpts {
   theme: 'light' | 'dark'
   locale: 'zh-CN' | 'en-US'
   fontSize: number
+  /** 整体界面样式：无边框 / 描边 */
+  uiStyle: UiStyle
   dark: ThemePalette
   light: ThemePalette
   /** 卡片透明度百分比：0 为不透明，80 为最透 */
@@ -193,6 +206,12 @@ export interface UiOpts {
   barTransparency: number
   /** 底栏透明度直接跟随卡片透明度 */
   barFollowCard: boolean
+  /** 卡片阴影开关与大小（0–48px）。 */
+  cardShadow: boolean
+  cardShadowSize: number
+  /** 软件背景模式：渐变 / 纯色。 */
+  backgroundMode: BackgroundMode
+  backgroundColor: string
   /** 英文字体族名称 */
   fontLatin: string
   /** 中文字体族名称 */

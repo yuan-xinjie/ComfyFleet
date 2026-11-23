@@ -553,7 +553,6 @@ export default function InstanceSettings({
       <div className="panel settings-clean">
         <header className="panel-head">
           <h2>实例设置</h2>
-          <span className="badge ghost">{inst.name}</span>
           {dirty && <span className="badge warn">未保存</span>}
         </header>
 
@@ -605,12 +604,6 @@ export default function InstanceSettings({
           </div>
 
           <section>
-            <h3>
-              计算引擎与 Python
-              {envChanged && (
-                <span className="badge warn">{pyMode === 'managed' ? '保存后自动安装' : '仅记录配置'}</span>
-              )}
-            </h3>
             <div className="engine-grid">
               <div className="field">
                 <div className="field-label">

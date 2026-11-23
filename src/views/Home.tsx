@@ -24,6 +24,7 @@ import { deriveLogTask, latestProgress, progressFromStructured, stageLabel } fro
 import { useInstanceLogStream } from '../lib/useInstanceLogStream'
 import { useInstanceProgress } from '../lib/useInstanceProgress'
 import Icon from '../components/Icon'
+import PressCard from '../components/PressCard'
 import ModelDirsButton from '../components/ModelDirsButton'
 import Select from '../components/Select'
 import EnvSummary from '../components/EnvSummary'
@@ -666,7 +667,7 @@ export default function Home({
                 if (isRemote(inst)) {
                   const url = remoteUrl(inst.remote)
                   return (
-                    <article key={inst.id} className="inst-card remote" aria-label={inst.name}>
+                    <PressCard key={inst.id} className="inst-card remote" aria-label={inst.name}>
                       <div className="inst-top">
                         <span className="inst-name">{inst.name}</span>
                         <span className="badge ghost">
@@ -705,13 +706,13 @@ export default function Home({
                           <Icon name="trash" size={13} />
                         </Button>
                       </div>
-                    </article>
+                    </PressCard>
                   )
                 }
                 const tone = stateTone(inst.state)
                 const run = runAction(inst)
                 return (
-                  <article
+                  <PressCard
                     key={inst.id}
                     className={`inst-card${inst.state === 'running' ? ' running' : ''}`}
                     aria-label={`${inst.name}，点击打开管理`}
@@ -816,7 +817,7 @@ export default function Home({
                         <Icon name="trash" size={13} />
                       </Button>
                     </div>
-                  </article>
+                  </PressCard>
                 )
               })}
             </div>

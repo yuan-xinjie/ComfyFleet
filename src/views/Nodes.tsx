@@ -10,6 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { api, errText } from '../lib/api'
+import { comfyPath } from '../lib/paths'
 import type {
   DepsInstallReport,
   NodeUpdate,
@@ -107,6 +108,7 @@ export default function Nodes({
 }: Props) {
   const instanceId = inst.id
   const running = inst.state === 'starting' || inst.state === 'running'
+  const installed = Boolean(inst.comfy.version)
 
   const [nodes, setNodes] = useState<NodeInfo[]>([])
   const [deps, setDeps] = useState<DepsReport | null>(null)
@@ -132,6 +134,7 @@ export default function Nodes({
   const [flashName, setFlashName] = useState<string | null>(null)
 
   const [url, setUrl] = useState('')
+  const urlRef = useRef<HTMLInputElement>(null)
   const [withReq, setWithReq] = useState(true)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -266,12 +269,14 @@ export default function Nodes({
       // 点搜索框和搜索按钮本身不算“点外面”；节点列表里的按钮也要能正常执行。
       if (searchBoxRef.current?.contains(target) || searchButtonRef.current?.contains(target)) return
       if (target.closest('.ov-node-scroll')) return
+      // 已经输入内容时，点别处先保留搜索框和结果；只有空框才自动收起。
+      if (search.trim()) return
       setSearchOpen(false)
       setSearch('')
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
-  }, [searchOpen])
+  }, [searchOpen, search])
 
   // 搜索里点中某个节点后，关闭搜索并把它滚到可视区域中间。
   useEffect(() => {
@@ -341,7 +346,10 @@ export default function Nodes({
   }
 
   const install = async () => {
-    if (!url.trim()) return
+    if (!url.trim()) {
+      urlRef.current?.focus()
+      return
+    }
     if (running && withReq) {
       notify('err', '实例运行中不能装依赖：取消勾选「装依赖」后再安装')
       return
@@ -558,6 +566,14 @@ export default function Nodes({
   const openNodeFolder = async (node: NodeInfo) => {
     try {
       await api.openPath(node.path)
+    } catch (e) {
+      notify('err', errText(e))
+    }
+  }
+
+  const openNodesRoot = async () => {
+    try {
+      await api.openPath(comfyPath(inst, 'custom_nodes'))
     } catch (e) {
       notify('err', errText(e))
     }
@@ -847,6 +863,15 @@ export default function Nodes({
                 >
                   <Icon name="refresh" size={14} />
                 </Button>
+                <Button
+                  className="icon-btn"
+                  onClick={() => void openNodesRoot()}
+                  disabled={!installed}
+                  title={installed ? '打开节点目录' : '先安装环境'}
+                  aria-label="打开节点目录"
+                >
+                  <Icon name="folder" size={14} />
+                </Button>
               </>
             )}
             <div ref={searchBoxRef} className={`ov-nodes-search${searchOpen ? ' is-open' : ''}`}>
@@ -884,8 +909,10 @@ export default function Nodes({
             <label className="field ov-node-url">
               仓库地址
               <TextInput
+                ref={urlRef}
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
+                placeholder="请输入节点仓库地址"
                 autoFocus
               />
             </label>
@@ -901,7 +928,7 @@ export default function Nodes({
             <IconTextButton
               className="primary"
               onClick={() => void install()}
-              disabled={!url.trim() || busy !== null || (running && withReq)}
+              disabled={busy !== null || (running && withReq)}
              icon="plus" iconSize={13}>
               
               {busy === 'install' ? '安装中…' : '安装'}

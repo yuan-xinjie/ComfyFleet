@@ -1,9 +1,8 @@
 import Button from './Button'
 import IconTextButton from './IconTextButton'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, errText } from '../lib/api'
-import { MODEL_SOURCE_LABEL, modelTypeLabel } from '../lib/storage'
 import type { InstanceConfig, StorageDir } from '../types'
 
 interface Props {
@@ -14,7 +13,6 @@ interface Props {
 interface MenuPos {
   left: number
   top: number
-  width: number
   up: boolean
 }
 
@@ -90,14 +88,28 @@ export default function ModelDirsButton({ inst, notify }: Props) {
     const el = btnRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    const width = Math.min(380, Math.max(220, window.innerWidth - 16))
-    const estimated = Math.min(360, 52 + list.length * 62)
+    // 宽度交给内容（最长路径）决定；这里只估算高度，用来决定上/下展开。
+    const estimated = Math.min(440, 12 + list.length * 34)
     const below = rect.bottom + 6
     const up = below + estimated > window.innerHeight - 8 && rect.top - estimated - 6 >= 8
     const top = up ? rect.top - estimated - 6 : below
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
-    setPos({ left, top, width, up })
+    setPos({ left: rect.left, top, up })
   }
+
+  // 弹出后按实际宽度（最长路径）夹在视口内；向下展开时再对齐按钮下沿。
+  useLayoutEffect(() => {
+    if (!open || !pos) return
+    const menu = menuRef.current
+    const btn = btnRef.current
+    if (!menu || !btn) return
+    const rect = btn.getBoundingClientRect()
+    const menuRect = menu.getBoundingClientRect()
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuRect.width - 8))
+    const top = pos.up ? Math.max(8, rect.top - menuRect.height - 6) : rect.bottom + 6
+    if (Math.round(left) !== Math.round(pos.left) || Math.round(top) !== Math.round(pos.top)) {
+      setPos({ ...pos, left, top })
+    }
+  }, [open, pos])
 
   const reveal = async (pin: boolean) => {
     clearTimer()
@@ -199,11 +211,10 @@ export default function ModelDirsButton({ inst, notify }: Props) {
             className={`select-menu model-dir-menu${pos.up ? ' up' : ''}`}
             role="menu"
             aria-label="模型目录"
-            style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
+            style={{ position: 'fixed', left: pos.left, top: pos.top }}
             onMouseEnter={clearTimer}
             onMouseLeave={scheduleClose}
           >
-            <div className="model-dir-head">选择要打开的模型目录</div>
             {dirs?.map((dir) => (
               <Button
                 key={`${dir.path}-${dir.source}`}
@@ -213,17 +224,7 @@ export default function ModelDirsButton({ inst, notify }: Props) {
                 title={dir.path}
                 onClick={() => void openOne(dir)}
               >
-                <span className="model-dir-top">
-                  <span className="model-dir-source">
-                    {MODEL_SOURCE_LABEL[dir.source] ?? dir.source}
-                  </span>
-                  <span className="model-dir-flags">
-                    {dir.isDefault && <span className="model-dir-flag">下载落点</span>}
-                    {!dir.exists && <span className="model-dir-flag danger">不存在</span>}
-                  </span>
-                </span>
                 <span className="model-dir-path mono">{dir.path}</span>
-                {dir.type && <span className="model-dir-type">{modelTypeLabel(dir.type)}</span>}
               </Button>
             ))}
           </div>,
